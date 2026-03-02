@@ -51,6 +51,8 @@ Scheduler::~Scheduler()
         close(wakeupFd_);
     if (epollFd_ >= 0)
         close(epollFd_);
+
+    wakeupChannel_.reset(); // IoChannel destructor will access readyQueue_
 }
 
 Scheduler * Scheduler::current() noexcept
