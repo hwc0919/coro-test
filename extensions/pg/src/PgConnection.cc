@@ -21,7 +21,7 @@ PgConnection::~PgConnection()
 {
 }
 
-Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, Scheduler * scheduler)
+Task<PgConnection> PgConnection::connect(std::string connStr, Scheduler * scheduler)
 {
     auto pgConn = std::shared_ptr<PGconn>(PQconnectStart(connStr.c_str()), PQfinish);
     if (!pgConn)
@@ -57,7 +57,7 @@ Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, S
     NITRO_TRACE("PgConnection: connected (fd=%d)\n", PQsocket(pgConn.get()));
     if (PQsetnonblocking(pgConn.get(), 1) != 0)
         throw std::runtime_error("PQsetnonblocking: " + std::string(PQerrorMessage(pgConn.get())));
-    co_return std::unique_ptr<PgConnection>(new PgConnection(std::move(pgConn), std::move(channel)));
+    co_return PgConnection(std::move(pgConn), std::move(channel));
 }
 
 bool PgConnection::isAlive() const
@@ -67,6 +67,10 @@ bool PgConnection::isAlive() const
 
 Task<PgResult> PgConnection::sendAndReceive(std::string_view sql, std::vector<PgValue> params)
 {
+    if (!pgConn_)
+    {
+        throw std::logic_error("PgConnection: operation on empty connection");
+    }
     std::vector<std::string> strBufs;
     std::vector<const char *> paramValues;
     std::vector<int> paramLengths;

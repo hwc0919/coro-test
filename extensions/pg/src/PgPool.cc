@@ -112,7 +112,7 @@ Task<PooledConnection> PgPool::acquire()
         std::exception_ptr err;
         try
         {
-            conn = co_await factory_();
+            conn = std::make_unique<PgConnection>(co_await factory_());
         }
         catch (...)
         {
@@ -172,15 +172,17 @@ void PooledConnection::reset() noexcept
     }
 }
 
-std::unique_ptr<PgConnection> PooledConnection::detach()
+PgConnection PooledConnection::detach()
 {
     if (conn_)
     {
         detachConnection(state_);
         state_.reset();
-        return std::move(conn_);
+        PgConnection result = std::move(*conn_);
+        conn_.reset();
+        return result;
     }
-    return nullptr;
+    return PgConnection();
 }
 
 } // namespace nitrocoro::pg

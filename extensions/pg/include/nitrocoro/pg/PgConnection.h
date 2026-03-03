@@ -27,16 +27,18 @@ using nitrocoro::io::IoChannel;
 class PgConnection
 {
 public:
-    static Task<std::unique_ptr<PgConnection>> connect(std::string connStr,
-                                                       Scheduler * scheduler = Scheduler::current());
+    static Task<PgConnection> connect(std::string connStr,
+                                      Scheduler * scheduler = Scheduler::current());
 
+    PgConnection() = default;
     PgConnection(const PgConnection &) = delete;
     PgConnection & operator=(const PgConnection &) = delete;
     PgConnection(PgConnection &&) noexcept = default;
     PgConnection & operator=(PgConnection &&) noexcept = default;
     ~PgConnection();
 
-    Scheduler * scheduler() const { return channel_->scheduler(); }
+    explicit operator bool() const noexcept { return static_cast<bool>(pgConn_); }
+    Scheduler * scheduler() const { return channel_ ? channel_->scheduler() : nullptr; }
     bool isAlive() const;
 
     Task<PgResult> query(std::string_view sql, std::vector<PgValue> params = {});

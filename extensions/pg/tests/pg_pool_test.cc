@@ -21,7 +21,7 @@ static std::string connStr()
     return env ? env : "host=localhost dbname=test user=postgres";
 }
 
-Task<std::unique_ptr<PgConnection>> makeConn()
+Task<PgConnection> makeConn()
 {
     co_return co_await PgConnection::connect(connStr());
 }
@@ -84,10 +84,10 @@ NITRO_TEST(pooled_connection_detach)
     NITRO_CHECK_EQ(pool.idleCount(), 0);
 
     auto detached = pooled.detach();
-    NITRO_REQUIRE(detached != nullptr);
+    NITRO_REQUIRE(detached);
     NITRO_CHECK(!pooled);
 
-    auto result = co_await detached->query("SELECT 42");
+    auto result = co_await detached.query("SELECT 42");
     NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 42);
 
     co_await Scheduler::current()->sleep_for(0.1);

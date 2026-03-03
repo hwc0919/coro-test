@@ -29,7 +29,7 @@ class PgPool
 {
 public:
     struct PoolState;
-    using Factory = std::function<Task<std::unique_ptr<PgConnection>>()>;
+    using Factory = std::function<Task<PgConnection>()>;
 
     PgPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current());
     ~PgPool();
@@ -61,7 +61,7 @@ public:
     explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
 
     void reset() noexcept;
-    std::unique_ptr<PgConnection> detach();
+    PgConnection detach();
 
 private:
     friend class PgPool;

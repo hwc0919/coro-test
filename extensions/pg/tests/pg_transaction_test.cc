@@ -22,7 +22,7 @@ static std::string connStr()
     return env ? env : "host=localhost dbname=test user=postgres";
 }
 
-Task<std::unique_ptr<PgConnection>> makeConn()
+Task<PgConnection> makeConn()
 {
     co_return co_await PgConnection::connect(connStr());
 }
@@ -173,48 +173,28 @@ NITRO_TEST(transaction_move_assignment)
 NITRO_TEST(transaction_from_connection)
 {
     auto conn = co_await PgConnection::connect(connStr());
-    co_await conn->execute("DROP TABLE IF EXISTS tx_conn_test");
-    co_await conn->execute("CREATE TABLE tx_conn_test (v INT)");
+    co_await conn.execute("DROP TABLE IF EXISTS tx_conn_test");
+    co_await conn.execute("CREATE TABLE tx_conn_test (v INT)");
 
     {
-        auto tx = co_await PgTransaction::begin(std::move(*conn));
+        auto tx = co_await PgTransaction::begin(std::move(conn));
         co_await tx.execute("INSERT INTO tx_conn_test VALUES (100)");
         co_await tx.commit();
     }
 
     auto conn2 = co_await PgConnection::connect(connStr());
-    auto result = co_await conn2->query("SELECT v FROM tx_conn_test");
+    auto result = co_await conn2.query("SELECT v FROM tx_conn_test");
     NITRO_CHECK_EQ(result.rowCount(), 1);
     NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 100);
 
-    co_await conn2->execute("DROP TABLE tx_conn_test");
-}
-
-NITRO_TEST(transaction_begin_unique_ptr)
-{
-    auto conn = co_await PgConnection::connect(connStr());
-    co_await conn->execute("DROP TABLE IF EXISTS tx_uptr_test");
-    co_await conn->execute("CREATE TABLE tx_uptr_test (v INT)");
-
-    {
-        auto tx = co_await PgTransaction::begin(std::move(conn));
-        co_await tx.execute("INSERT INTO tx_uptr_test VALUES (200)");
-        co_await tx.commit();
-    }
-
-    auto conn2 = co_await PgConnection::connect(connStr());
-    auto result = co_await conn2->query("SELECT v FROM tx_uptr_test");
-    NITRO_CHECK_EQ(result.rowCount(), 1);
-    NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 200);
-
-    co_await conn2->execute("DROP TABLE tx_uptr_test");
+    co_await conn2.execute("DROP TABLE tx_conn_test");
 }
 
 NITRO_TEST(transaction_release_and_reuse)
 {
     auto conn = co_await PgConnection::connect(connStr());
-    co_await conn->execute("DROP TABLE IF EXISTS tx_release_test");
-    co_await conn->execute("CREATE TABLE tx_release_test (v INT)");
+    co_await conn.execute("DROP TABLE IF EXISTS tx_release_test");
+    co_await conn.execute("CREATE TABLE tx_release_test (v INT)");
 
     {
         auto tx = co_await PgTransaction::begin(std::move(conn));
@@ -230,10 +210,10 @@ NITRO_TEST(transaction_release_and_reuse)
         conn = tx.release();
     }
 
-    auto result = co_await conn->query("SELECT SUM(v) FROM tx_release_test");
+    auto result = co_await conn.query("SELECT SUM(v) FROM tx_release_test");
     NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 3);
 
-    co_await conn->execute("DROP TABLE tx_release_test");
+    co_await conn.execute("DROP TABLE tx_release_test");
 }
 
 NITRO_TEST(transaction_release_before_commit)
@@ -247,9 +227,45 @@ NITRO_TEST(transaction_release_before_commit)
 NITRO_TEST(transaction_release_pooled_connection)
 {
     PgPool pool(1, makeConn);
-    auto tx = co_await pool.newTransaction();
-    co_await tx.commit();
-    NITRO_CHECK_THROWS_AS(tx.release(), std::logic_error);
+    co_await (co_await pool.acquire())->execute("DROP TABLE IF EXISTS tx_pool_release_test");
+    co_await (co_await pool.acquire())->execute("CREATE TABLE tx_pool_release_test (v INT)");
+
+    PgConnection conn;
+    {
+        auto tx = co_await pool.newTransaction();
+        co_await tx.execute("INSERT INTO tx_pool_release_test VALUES (1)");
+        co_await tx.commit();
+        conn = tx.release();
+    }
+
+    NITRO_CHECK_EQ(pool.idleCount(), 0);
+    co_await conn.execute("INSERT INTO tx_pool_release_test VALUES (2)");
+    auto result = co_await conn.query("SELECT SUM(v) FROM tx_pool_release_test");
+    NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 3);
+
+    co_await conn.execute("DROP TABLE tx_pool_release_test");
+}
+
+NITRO_TEST(transaction_release_pooled_auto_return)
+{
+    PgPool pool(1, makeConn);
+    co_await (co_await pool.acquire())->execute("DROP TABLE IF EXISTS tx_pool_auto_test");
+    co_await (co_await pool.acquire())->execute("CREATE TABLE tx_pool_auto_test (v INT)");
+
+    {
+        auto tx = co_await pool.newTransaction();
+        co_await tx.execute("INSERT INTO tx_pool_auto_test VALUES (1)");
+        co_await tx.commit();
+        auto conn = tx.releasePooled();
+        co_await conn->execute("INSERT INTO tx_pool_auto_test VALUES (2)");
+    }
+    co_await Scheduler::current()->sleep_for(0.5);
+    NITRO_CHECK_EQ(pool.idleCount(), 1);
+
+    auto conn = co_await pool.acquire();
+    auto result = co_await conn->query("SELECT SUM(v) FROM tx_pool_auto_test");
+    NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 3);
+    co_await conn->execute("DROP TABLE tx_pool_auto_test");
 }
 
 int main()

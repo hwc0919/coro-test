@@ -25,13 +25,6 @@ Task<PgTransaction> PgTransaction::begin(PgConnection && conn)
     co_return PgTransaction(std::move(conn), scheduler);
 }
 
-Task<PgTransaction> PgTransaction::begin(std::unique_ptr<PgConnection> && conn)
-{
-    auto scheduler = conn->scheduler();
-    co_await conn->execute("BEGIN");
-    co_return PgTransaction(std::move(conn), scheduler);
-}
-
 // Private constructors
 PgTransaction::PgTransaction(PooledConnection conn, Scheduler * scheduler)
     : pooledConn_(std::move(conn)), scheduler_(scheduler)
@@ -41,12 +34,6 @@ PgTransaction::PgTransaction(PooledConnection conn, Scheduler * scheduler)
 
 PgTransaction::PgTransaction(PgConnection conn, Scheduler * scheduler)
     : ownedConn_(std::make_unique<PgConnection>(std::move(conn))), scheduler_(scheduler)
-{
-    conn_ = ownedConn_.get();
-}
-
-PgTransaction::PgTransaction(std::unique_ptr<PgConnection> conn, Scheduler * scheduler)
-    : ownedConn_(std::move(conn)), scheduler_(scheduler)
 {
     conn_ = ownedConn_.get();
 }
@@ -140,7 +127,6 @@ Task<> PgTransaction::commit()
     co_await conn_->execute("COMMIT");
     done_ = true;
     conn_ = nullptr;
-    pooledConn_.reset();
 }
 
 Task<> PgTransaction::rollback()
@@ -152,20 +138,36 @@ Task<> PgTransaction::rollback()
     co_await conn_->execute("ROLLBACK");
     done_ = true;
     conn_ = nullptr;
-    pooledConn_.reset();
 }
 
-std::unique_ptr<PgConnection> PgTransaction::release()
+PgConnection PgTransaction::release()
 {
     if (!done_)
     {
         throw std::logic_error("Cannot release connection before commit/rollback");
     }
-    if (!ownedConn_)
+    if (ownedConn_)
     {
-        throw std::logic_error("Cannot release pooled connection");
+        return std::move(*ownedConn_);
     }
-    return std::move(ownedConn_);
+    if (pooledConn_)
+    {
+        return pooledConn_.detach();
+    }
+    throw std::logic_error("No connection to release");
+}
+
+PooledConnection PgTransaction::releasePooled()
+{
+    if (!done_)
+    {
+        throw std::logic_error("Cannot release connection before commit/rollback");
+    }
+    if (!pooledConn_)
+    {
+        throw std::logic_error("Cannot release non-pooled connection as PooledConnection");
+    }
+    return std::move(pooledConn_);
 }
 
 } // namespace nitrocoro::pg

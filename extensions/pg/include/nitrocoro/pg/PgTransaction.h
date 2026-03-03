@@ -25,7 +25,6 @@ public:
     // Static factory methods
     static Task<PgTransaction> begin(PooledConnection && conn);
     static Task<PgTransaction> begin(PgConnection && conn);
-    static Task<PgTransaction> begin(std::unique_ptr<PgConnection> && conn);
 
     ~PgTransaction();
 
@@ -38,12 +37,13 @@ public:
     Task<> execute(std::string_view sql, std::vector<PgValue> params = {});
     Task<> commit();
     Task<> rollback();
-    std::unique_ptr<PgConnection> release();
+
+    PgConnection release();
+    PooledConnection releasePooled();
 
 private:
     PgTransaction(PooledConnection conn, Scheduler * scheduler);
     PgTransaction(PgConnection conn, Scheduler * scheduler);
-    PgTransaction(std::unique_ptr<PgConnection> conn, Scheduler * scheduler);
 
     PgConnection * conn_{ nullptr };
     PooledConnection pooledConn_;
