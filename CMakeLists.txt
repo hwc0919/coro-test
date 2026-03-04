@@ -56,14 +56,10 @@ find_package(Threads REQUIRED)
 target_link_libraries(nitrocoro PUBLIC Threads::Threads)
 
 option(BUILD_TESTING "Build tests" ON)
+option(BUILD_EXAMPLES "Build examples" ON)
+
 if (BUILD_TESTING)
     enable_testing()
-    add_subdirectory(tests)
-endif ()
-
-option(BUILD_EXAMPLES "Build examples" ON)
-if (BUILD_EXAMPLES)
-    add_subdirectory(examples)
 endif ()
 
 # Extensions
@@ -91,7 +87,10 @@ endif ()
 
 # Integration tests (must be after extensions)
 if (BUILD_TESTING)
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration)
-        add_subdirectory(tests/integration)
-    endif()
+    add_subdirectory(tests)
+    add_subdirectory(tests/integration)
+endif ()
+
+if (BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif ()

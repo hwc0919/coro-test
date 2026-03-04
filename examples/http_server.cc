@@ -93,12 +93,12 @@ int main(int argc, char * argv[])
     for (size_t i = 0; i < threadCount; ++i)
         threads.emplace_back(runWorker);
 
-    NITRO_INFO("=== HTTP Server Test === threads=%zu"
-               "Try:\n"
-               "  curl http://localhost:%hu/\n"
-               "  curl http://localhost:%hu/hello?name=Alice\n"
-               "  curl -X POST -d 'test data' http://localhost:%hu/echo\n",
-               threadCount, port, port, port);
+    printf("=== HTTP Server Test === threads=%zu\n"
+           "Try:\n"
+           "  curl http://localhost:%hu/\n"
+           "  curl http://localhost:%hu/hello?name=Alice\n"
+           "  curl -X POST -d 'test data' http://localhost:%hu/echo\n",
+           threadCount, port, port, port);
     for (auto & t : threads)
         t.join();
 
