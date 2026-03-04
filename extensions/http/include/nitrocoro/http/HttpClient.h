@@ -6,6 +6,7 @@
 
 #include <nitrocoro/core/Future.h>
 #include <nitrocoro/core/Task.h>
+#include <nitrocoro/http/HttpCompleteMessage.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpStream.h>
 #include <nitrocoro/io/Stream.h>

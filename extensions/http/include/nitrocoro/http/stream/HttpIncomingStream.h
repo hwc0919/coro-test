@@ -5,8 +5,8 @@
 #pragma once
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/http/BodyReader.h>
-#include <nitrocoro/http/HttpDataAccessor.h>
 #include <nitrocoro/http/HttpMessage.h>
+#include <nitrocoro/http/HttpMessageAccessor.h>
 
 #include <memory>
 #include <string>
@@ -17,14 +17,11 @@ namespace nitrocoro::http
 namespace detail
 {
 
-template <typename DataType>
 class HttpIncomingStreamBase
 {
 public:
-    HttpIncomingStreamBase(DataType message, std::shared_ptr<BodyReader> bodyReader)
-        : data_(std::move(message)), bodyReader_(std::move(bodyReader)) {}
-
-    const DataType & getData() const { return data_; }
+    explicit HttpIncomingStreamBase(std::shared_ptr<BodyReader> bodyReader)
+        : bodyReader_(std::move(bodyReader)) {}
 
     Task<size_t> read(char * buf, size_t maxLen);
     Task<std::string> read(size_t maxLen);
@@ -36,44 +33,37 @@ public:
     }
 
 protected:
-    DataType data_;
     std::shared_ptr<BodyReader> bodyReader_;
 };
 
 } // namespace detail
 
-// Forward declaration
 template <typename T>
 class HttpIncomingStream;
 
+class HttpCompleteRequest;
 class HttpCompleteResponse;
-
-// ============================================================================
-// HttpIncomingStream<HttpRequest> - Read HTTP Request
-// ============================================================================
 
 template <>
 class HttpIncomingStream<HttpRequest>
-    : public HttpRequestAccessor<HttpIncomingStream<HttpRequest>>,
-      public detail::HttpIncomingStreamBase<HttpRequest>
+    : public HttpRequestAccessor,
+      public detail::HttpIncomingStreamBase
 {
 public:
-    using detail::HttpIncomingStreamBase<HttpRequest>::HttpIncomingStreamBase;
+    HttpIncomingStream(HttpRequest message, std::shared_ptr<BodyReader> bodyReader)
+        : HttpRequestAccessor(std::move(message)), detail::HttpIncomingStreamBase(std::move(bodyReader)) {}
 
-    // Task<HttpCompleteRequest> toCompleteRequest();
+    Task<HttpCompleteRequest> toCompleteRequest();
 };
-
-// ============================================================================
-// HttpIncomingStream<HttpResponse> - Read HTTP Response
-// ============================================================================
 
 template <>
 class HttpIncomingStream<HttpResponse>
-    : public HttpResponseAccessor<HttpIncomingStream<HttpResponse>>,
-      public detail::HttpIncomingStreamBase<HttpResponse>
+    : public HttpResponseAccessor,
+      public detail::HttpIncomingStreamBase
 {
 public:
-    using detail::HttpIncomingStreamBase<HttpResponse>::HttpIncomingStreamBase;
+    HttpIncomingStream(HttpResponse message, std::shared_ptr<BodyReader> bodyReader)
+        : HttpResponseAccessor(std::move(message)), detail::HttpIncomingStreamBase(std::move(bodyReader)) {}
 
     Task<HttpCompleteResponse> toCompleteResponse();
 };
