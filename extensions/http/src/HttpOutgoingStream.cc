@@ -202,12 +202,14 @@ Task<> HttpOutgoingStreamBase<DataType>::end(std::string_view data)
         // Optimization: merge headers and body for small responses to reduce syscalls
         if (transferMode_ == TransferMode::ContentLength && data.size() <= kMaxMergedBodySize)
         {
+            headersSent_ = true;
+            if (prevFuture_)
+                co_await prevFuture_->get();
             std::string response;
             response.reserve(256 + data.size());
             buildHeaders(response);
             response.append("\r\n").append(data);
             co_await stream_->write(response.c_str(), response.size());
-            headersSent_ = true;
             finishedPromise_.set_value();
             co_return;
         }
@@ -225,13 +227,16 @@ Task<> HttpOutgoingStreamBase<DataType>::writeHeaders()
 {
     if (headersSent_)
         co_return;
+    headersSent_ = true;
+
+    if (prevFuture_)
+        co_await prevFuture_->get();
 
     std::string headers;
     headers.reserve(256);
     buildHeaders(headers);
     headers.append("\r\n");
     co_await stream_->write(headers.c_str(), headers.size());
-    headersSent_ = true;
 }
 
 // TODO: move to http helpers

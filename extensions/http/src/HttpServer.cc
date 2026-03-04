@@ -84,6 +84,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
 
     auto buffer = std::make_shared<utils::StringBuffer>();
     HttpContext<HttpRequest> context(stream, buffer);
+    std::optional<Future<>> prevFuture;
     while (true)
     {
         auto message = co_await context.receiveMessage();
@@ -97,7 +98,8 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         auto request = HttpIncomingStream<HttpRequest>(std::move(*message), bodyReader);
         Promise<> finishedPromise(scheduler_);
         auto finishedFuture = finishedPromise.get_future();
-        HttpOutgoingStream<HttpResponse> response(stream, std::move(finishedPromise));
+        HttpOutgoingStream<HttpResponse> response(stream, std::move(finishedPromise), std::move(prevFuture));
+        prevFuture = std::move(finishedFuture);
         response.setCloseConnection(!keepAlive);
 
         auto key = std::make_pair(std::string{ request.method() }, std::string{ request.path() });
@@ -112,7 +114,6 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             co_await response.end("Not Found");
         }
 
-        co_await finishedFuture.get();
         if (!bodyReader->isComplete())
             co_await bodyReader->drain();
         if (!keepAlive)

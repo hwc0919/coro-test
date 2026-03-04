@@ -12,6 +12,7 @@
 #include <nitrocoro/io/Stream.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -25,8 +26,8 @@ template <typename DataType>
 class HttpOutgoingStreamBase
 {
 public:
-    explicit HttpOutgoingStreamBase(io::StreamPtr stream, Promise<> finishedPromise)
-        : stream_(std::move(stream)), finishedPromise_(std::move(finishedPromise)) {}
+    explicit HttpOutgoingStreamBase(io::StreamPtr stream, Promise<> finishedPromise, std::optional<Future<>> prevFuture = std::nullopt)
+        : stream_(std::move(stream)), finishedPromise_(std::move(finishedPromise)), prevFuture_(std::move(prevFuture)) {}
 
     void setHeader(std::string_view name, std::string value);
     void setHeader(HttpHeader::NameCode code, std::string value);
@@ -49,6 +50,7 @@ protected:
     TransferMode transferMode_ = TransferMode::Chunked;
     std::unique_ptr<BodyWriter> bodyWriter_;
     Promise<> finishedPromise_;
+    std::optional<Future<>> prevFuture_;
 };
 
 } // namespace detail
@@ -66,10 +68,10 @@ class HttpOutgoingStream<HttpRequest>
     : public detail::HttpOutgoingStreamBase<HttpRequest>
 {
 public:
-    explicit HttpOutgoingStream(io::StreamPtr stream, Promise<> finishedPromise)
-        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), std::move(finishedPromise)) {}
+    explicit HttpOutgoingStream(io::StreamPtr stream, Promise<> finishedPromise, std::optional<Future<>> prevFuture = std::nullopt)
+        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), std::move(finishedPromise), std::move(prevFuture)) {}
     explicit HttpOutgoingStream(io::StreamPtr stream)
-        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), Promise<>(nullptr)) {}
+        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), Promise<>()) {}
 
     void setMethod(const std::string & method) { data_.method = method; }
     void setPath(const std::string & path) { data_.path = path; }
@@ -85,7 +87,8 @@ class HttpOutgoingStream<HttpResponse>
     : public detail::HttpOutgoingStreamBase<HttpResponse>
 {
 public:
-    using detail::HttpOutgoingStreamBase<HttpResponse>::HttpOutgoingStreamBase;
+    explicit HttpOutgoingStream(io::StreamPtr stream, Promise<> finishedPromise, std::optional<Future<>> prevFuture = std::nullopt)
+        : detail::HttpOutgoingStreamBase<HttpResponse>(std::move(stream), std::move(finishedPromise), std::move(prevFuture)) {}
 
     void setStatus(StatusCode code, const std::string & reason = "");
     void setVersion(Version version) { data_.version = version; }
