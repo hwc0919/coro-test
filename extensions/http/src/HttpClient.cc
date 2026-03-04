@@ -66,7 +66,10 @@ Task<HttpCompleteResponse> HttpClient::sendRequest(const std::string & method, c
     // Build request
     std::string request;
     request.reserve(method.size() + url.path().size() + url.host().size() + body.size() + 64);
-    request.append(method).append(" ").append(url.path()).append(" HTTP/1.1\r\n");
+    std::string requestTarget = url.path();
+    if (!url.query().empty())
+        requestTarget.append("?").append(url.query());
+    request.append(method).append(" ").append(requestTarget).append(" HTTP/1.1\r\n");
     request.append("Host: ").append(url.host()).append("\r\n");
     request.append("Connection: close\r\n");
 

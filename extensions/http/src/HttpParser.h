@@ -25,12 +25,19 @@ public:
 
     bool parseLine(std::string_view line);
 
-    bool isHeaderComplete() const { return headerComplete_; }
+    bool isHeaderComplete() const { return state_ == State::Complete; }
     HttpRequest && extractMessage() { return std::move(data_); }
 
 private:
+    enum class State
+    {
+        ExpectStatusLine,
+        ExpectHeader,
+        Complete
+    };
+
     HttpRequest data_;
-    bool headerComplete_ = false;
+    State state_ = State::ExpectStatusLine;
 
     void parseRequestLine(std::string_view line);
     void parseHeader(std::string_view line);
@@ -53,12 +60,19 @@ public:
 
     bool parseLine(std::string_view line);
 
-    bool isHeaderComplete() const { return headerComplete_; }
+    bool isHeaderComplete() const { return state_ == State::Complete; }
     HttpResponse && extractMessage() { return std::move(data_); }
 
 private:
+    enum class State
+    {
+        ExpectStatusLine,
+        ExpectHeader,
+        Complete
+    };
+
     HttpResponse data_;
-    bool headerComplete_ = false;
+    State state_ = State::ExpectStatusLine;
 
     void parseStatusLine(std::string_view line);
     void parseHeader(std::string_view line);

@@ -50,9 +50,10 @@ static std::optional<HttpHeader> parseHeaderLine(std::string_view line)
 
 bool HttpParser<HttpRequest>::parseLine(std::string_view line)
 {
-    if (data_.method.empty())
+    if (state_ == State::ExpectStatusLine)
     {
         parseRequestLine(line);
+        state_ = State::ExpectHeader;
     }
     else if (!line.empty())
     {
@@ -61,9 +62,9 @@ bool HttpParser<HttpRequest>::parseLine(std::string_view line)
     else
     {
         processHeaders();
-        headerComplete_ = true;
+        state_ = State::Complete;
     }
-    return headerComplete_;
+    return state_ == State::Complete;
 }
 
 void HttpParser<HttpRequest>::processHeaders()
@@ -219,9 +220,10 @@ void HttpParser<HttpRequest>::parseCookies(const std::string & cookieHeader)
 
 bool HttpParser<HttpResponse>::parseLine(std::string_view line)
 {
-    if (data_.statusCode == StatusCode::kUnknown)
+    if (state_ == State::ExpectStatusLine)
     {
         parseStatusLine(line);
+        state_ = State::ExpectHeader;
     }
     else if (!line.empty())
     {
@@ -230,9 +232,9 @@ bool HttpParser<HttpResponse>::parseLine(std::string_view line)
     else
     {
         processHeaders();
-        headerComplete_ = true;
+        state_ = State::Complete;
     }
-    return headerComplete_;
+    return state_ == State::Complete;
 }
 
 void HttpParser<HttpResponse>::processHeaders()
