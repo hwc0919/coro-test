@@ -11,6 +11,13 @@
 namespace nitrocoro::io
 {
 
+template <typename S>
+concept StreamConcept = requires(S & s, void * rbuf, const void * wbuf, size_t len) {
+    { s.read(rbuf, len) } -> std::same_as<Task<size_t>>;
+    { s.write(wbuf, len) } -> std::same_as<Task<size_t>>;
+    { s.shutdown() } -> std::same_as<Task<>>;
+};
+
 class Stream;
 using StreamPtr = std::shared_ptr<Stream>;
 
@@ -24,7 +31,7 @@ using StreamPtr = std::shared_ptr<Stream>;
 class Stream
 {
 public:
-    template <typename S>
+    template <StreamConcept S>
     explicit Stream(std::shared_ptr<S> stream)
         : holder_(std::make_shared<Holder<S>>(std::move(stream)))
     {
