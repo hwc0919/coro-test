@@ -3,12 +3,55 @@
  * @brief HTTP outgoing stream for writing requests and responses
  */
 #pragma once
+#include <nitrocoro/core/Future.h>
+#include <nitrocoro/core/Task.h>
+#include <nitrocoro/http/BodyWriter.h>
+#include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
-#include <nitrocoro/http/stream/HttpOutgoingStreamBase.h>
+#include <nitrocoro/io/Stream.h>
+
+#include <memory>
+#include <string>
+#include <string_view>
 
 namespace nitrocoro::http
 {
+
+namespace detail
+{
+
+template <typename DataType>
+class HttpOutgoingStreamBase
+{
+public:
+    explicit HttpOutgoingStreamBase(io::StreamPtr stream, Promise<> finishedPromise)
+        : stream_(std::move(stream)), finishedPromise_(std::move(finishedPromise)) {}
+
+    void setHeader(std::string_view name, std::string value);
+    void setHeader(HttpHeader::NameCode code, std::string value);
+    void setHeader(HttpHeader header);
+    void setCookie(const std::string & name, std::string value);
+    Task<> write(const char * data, size_t len);
+    Task<> write(std::string_view data);
+    Task<> end();
+    Task<> end(std::string_view data);
+
+protected:
+    static const char * getDefaultReason(StatusCode code);
+    Task<> writeHeaders();
+    void buildHeaders(std::string & buf);
+    void decideTransferMode(std::optional<size_t> lengthHint = std::nullopt);
+
+    DataType data_;
+    io::StreamPtr stream_;
+    bool headersSent_ = false;
+    TransferMode transferMode_ = TransferMode::Chunked;
+    std::unique_ptr<BodyWriter> bodyWriter_;
+    Promise<> finishedPromise_;
+};
+
+} // namespace detail
 
 // Forward declaration
 template <typename T>
@@ -20,13 +63,13 @@ class HttpOutgoingStream;
 
 template <>
 class HttpOutgoingStream<HttpRequest>
-    : public HttpOutgoingStreamBase<HttpRequest>
+    : public detail::HttpOutgoingStreamBase<HttpRequest>
 {
 public:
     explicit HttpOutgoingStream(io::StreamPtr stream, Promise<> finishedPromise)
-        : HttpOutgoingStreamBase(std::move(stream), std::move(finishedPromise)) {}
+        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), std::move(finishedPromise)) {}
     explicit HttpOutgoingStream(io::StreamPtr stream)
-        : HttpOutgoingStreamBase(std::move(stream), Promise<>(nullptr)) {}
+        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), Promise<>(nullptr)) {}
 
     void setMethod(const std::string & method) { data_.method = method; }
     void setPath(const std::string & path) { data_.path = path; }
@@ -39,10 +82,10 @@ public:
 
 template <>
 class HttpOutgoingStream<HttpResponse>
-    : public HttpOutgoingStreamBase<HttpResponse>
+    : public detail::HttpOutgoingStreamBase<HttpResponse>
 {
 public:
-    using HttpOutgoingStreamBase::HttpOutgoingStreamBase;
+    using detail::HttpOutgoingStreamBase<HttpResponse>::HttpOutgoingStreamBase;
 
     void setStatus(StatusCode code, const std::string & reason = "");
     void setVersion(Version version) { data_.version = version; }

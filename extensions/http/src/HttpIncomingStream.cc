@@ -6,7 +6,7 @@
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/stream/HttpIncomingStream.h>
 
-namespace nitrocoro::http
+namespace nitrocoro::http::detail
 {
 
 // ============================================================================
@@ -32,9 +32,10 @@ Task<std::string> HttpIncomingStreamBase<DataType>::read(size_t maxLen)
 template class HttpIncomingStreamBase<HttpRequest>;
 template class HttpIncomingStreamBase<HttpResponse>;
 
-// ============================================================================
-// HttpIncomingStream<HttpResponse> Implementation
-// ============================================================================
+} // namespace nitrocoro::http::detail
+
+namespace nitrocoro::http
+{
 
 Task<HttpCompleteResponse> HttpIncomingStream<HttpResponse>::toCompleteResponse()
 {

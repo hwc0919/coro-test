@@ -22,6 +22,11 @@ static const char * toVersionString(Version version)
     }
 }
 
+} // namespace nitrocoro::http
+
+namespace nitrocoro::http::detail
+{
+
 // ============================================================================
 // HttpOutgoingStreamBase Implementation
 // ============================================================================
@@ -368,6 +373,11 @@ const char * HttpOutgoingStreamBase<DataType>::getDefaultReason(StatusCode code)
 template class HttpOutgoingStreamBase<HttpRequest>;
 template class HttpOutgoingStreamBase<HttpResponse>;
 
+} // namespace nitrocoro::http::detail
+
+namespace nitrocoro::http
+{
+
 // ============================================================================
 // HttpOutgoingStream<HttpRequest> Implementation
 // ============================================================================
@@ -379,7 +389,7 @@ template class HttpOutgoingStreamBase<HttpResponse>;
 void HttpOutgoingStream<HttpResponse>::setStatus(StatusCode code, const std::string & reason)
 {
     data_.statusCode = code;
-    data_.statusReason = reason.empty() ? getDefaultReason(code) : reason;
+    data_.statusReason = reason.empty() ? detail::HttpOutgoingStreamBase<HttpResponse>::getDefaultReason(code) : reason;
 }
 
 } // namespace nitrocoro::http
