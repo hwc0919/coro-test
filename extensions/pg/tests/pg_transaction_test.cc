@@ -7,6 +7,7 @@
  *   PG_CONN_STR="host=localhost dbname=test user=postgres password=secret" ./pg_transaction_test
  */
 #include <nitrocoro/pg/PgConnection.h>
+#include <nitrocoro/pg/PgException.h>
 #include <nitrocoro/pg/PgPool.h>
 #include <nitrocoro/pg/PgTransaction.h>
 #include <nitrocoro/testing/Test.h>
@@ -49,7 +50,7 @@ NITRO_TEST(transaction_commit)
         auto tx = co_await pool.newTransaction();
         co_await tx->execute("INSERT INTO tx_commit_test VALUES (42)");
         co_await tx->commit();
-        NITRO_CHECK_THROWS_AS(co_await tx->execute("INSERT INTO tx_commit_test VALUES (99)"), std::logic_error);
+        NITRO_CHECK_THROWS_AS(co_await tx->execute("INSERT INTO tx_commit_test VALUES (99)"), PgTransactionError);
     }
     auto conn = co_await pool.acquire();
     auto result = co_await conn->query("SELECT v FROM tx_commit_test");
@@ -147,7 +148,7 @@ NITRO_TEST(transaction_release_before_commit)
 {
     auto conn = co_await PgConnection::connect(connStr());
     auto tx = co_await PgTransaction::begin(std::move(conn));
-    NITRO_CHECK_THROWS_AS(tx->release(), std::logic_error);
+    NITRO_CHECK_THROWS_AS(tx->release(), PgTransactionError);
     co_await tx->rollback();
 }
 

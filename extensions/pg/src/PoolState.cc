@@ -3,6 +3,7 @@
  * @brief PoolState and pool helper functions implementation
  */
 #include "PoolState.h"
+#include "nitrocoro/pg/PgException.h"
 #include <nitrocoro/utils/Debug.h>
 
 namespace nitrocoro::pg
@@ -25,7 +26,7 @@ void PoolState::returnConnection(const std::weak_ptr<PoolState> & weakState,
             if (!state->waiters.empty())
             {
                 state->waiters.front().set_exception(
-                    std::make_exception_ptr(std::runtime_error("PgPool: connection dead")));
+                    std::make_exception_ptr(PgConnectionError("PgPool: connection dead")));
                 state->waiters.pop();
             }
         }

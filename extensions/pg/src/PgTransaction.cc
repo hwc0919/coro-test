@@ -3,6 +3,7 @@
  * @brief PgTransaction implementation
  */
 #include "nitrocoro/pg/PgTransaction.h"
+#include "nitrocoro/pg/PgException.h"
 #include <nitrocoro/utils/Debug.h>
 
 namespace nitrocoro::pg
@@ -16,6 +17,7 @@ Task<std::unique_ptr<PgTransaction>> PgTransaction::begin(std::unique_ptr<PgConn
 
 PgTransaction::PgTransaction(std::unique_ptr<PgConnection> conn)
     : conn_(std::move(conn))
+    , scheduler_(conn_->scheduler())
 {
 }
 
@@ -38,24 +40,34 @@ PgTransaction::~PgTransaction()
     }
 }
 
+Scheduler * PgTransaction::scheduler() const
+{
+    return scheduler_;
+}
+
+bool PgTransaction::isAlive() const
+{
+    return !done_ && conn_ && conn_->isAlive();
+}
+
 Task<PgResult> PgTransaction::query(std::string_view sql, std::vector<PgValue> params)
 {
     if (done_)
-        throw std::logic_error("Transaction already finished");
+        throw PgTransactionError("Transaction already finished");
     co_return co_await conn_->query(sql, std::move(params));
 }
 
 Task<> PgTransaction::execute(std::string_view sql, std::vector<PgValue> params)
 {
     if (done_)
-        throw std::logic_error("Transaction already finished");
+        throw PgTransactionError("Transaction already finished");
     co_await conn_->execute(sql, std::move(params));
 }
 
 Task<> PgTransaction::commit()
 {
     if (done_)
-        throw std::logic_error("Transaction already finished");
+        throw PgTransactionError("Transaction already finished");
     co_await conn_->execute("COMMIT");
     done_ = true;
 }
@@ -63,7 +75,7 @@ Task<> PgTransaction::commit()
 Task<> PgTransaction::rollback()
 {
     if (done_)
-        throw std::logic_error("Transaction already finished");
+        throw PgTransactionError("Transaction already finished");
     co_await conn_->execute("ROLLBACK");
     done_ = true;
 }
@@ -71,7 +83,7 @@ Task<> PgTransaction::rollback()
 std::unique_ptr<PgConnection> PgTransaction::release()
 {
     if (!done_)
-        throw std::logic_error("Cannot release connection before commit/rollback");
+        throw PgTransactionError("Cannot release connection before commit/rollback");
     return std::move(conn_);
 }
 

@@ -4,6 +4,7 @@
  */
 #include "PgConnectionImpl.h"
 #include "PgResultWrapper.h"
+#include "nitrocoro/pg/PgException.h"
 #include <libpq-fe.h>
 #include <nitrocoro/utils/Debug.h>
 
@@ -36,11 +37,11 @@ PgConnectionImpl::PgConnectionImpl(std::shared_ptr<PgConnWrapper> conn, std::uni
 Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, Scheduler * scheduler)
 {
     auto pgConn = std::make_shared<PgConnectionImpl::PgConnWrapper>(PQconnectStart(connStr.c_str()));
-    if (!pgConn)
-        throw std::runtime_error("PQconnectStart: out of memory");
+    if (!pgConn->raw)
+        throw PgConnectionError("PQconnectStart: out of memory");
 
     if (PQstatus(pgConn->raw) == CONNECTION_BAD)
-        throw std::runtime_error("PgConnection::connect: " + std::string(PQerrorMessage(pgConn->raw)));
+        throw PgConnectionError("PgConnection::connect: " + std::string(PQerrorMessage(pgConn->raw)));
 
     co_await scheduler->switch_to();
     auto channel = std::make_unique<io::IoChannel>(PQsocket(pgConn->raw), TriggerMode::LevelTriggered, scheduler);
@@ -65,10 +66,10 @@ Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, S
         return IoChannel::IoStatus::Success; // PGRES_POLLING_OK
     });
     if (connectResult != IoChannel::IoResult::Success)
-        throw std::runtime_error("PgConnection: handshake failed");
+        throw PgConnectionError("PgConnection: handshake failed");
     NITRO_TRACE("PgConnection: connected (fd=%d)", PQsocket(pgConn->raw));
     if (PQsetnonblocking(pgConn->raw, 1) != 0)
-        throw std::runtime_error("PQsetnonblocking: " + std::string(PQerrorMessage(pgConn->raw)));
+        throw PgConnectionError("PQsetnonblocking: " + std::string(PQerrorMessage(pgConn->raw)));
     co_return std::make_unique<PgConnectionImpl>(std::move(pgConn), std::move(channel));
 }
 
@@ -85,7 +86,7 @@ bool PgConnectionImpl::isAlive() const
 Task<PgResult> PgConnectionImpl::sendAndReceive(std::string_view sql, std::vector<PgValue> params)
 {
     if (!pgConn_)
-        throw std::logic_error("PgConnection: operation on empty connection");
+        throw PgConnectionError("PgConnection: operation on empty connection");
 
     std::vector<std::string> strBuffers;
     std::vector<const char *> paramValues;
@@ -153,7 +154,7 @@ Task<PgResult> PgConnectionImpl::sendAndReceive(std::string_view sql, std::vecto
                                params.empty() ? nullptr : paramFormats.data(),
                                0);
     if (!ok)
-        throw std::runtime_error(std::string("PQsendQueryParams: ") + PQerrorMessage(pgConn_->raw));
+        throw PgConnectionError(std::string("PQsendQueryParams: ") + PQerrorMessage(pgConn_->raw));
 
     auto flushResult = co_await channel_->performWrite([this](int, IoChannel * c) -> IoChannel::IoStatus {
         int r = PQflush(pgConn_->raw);
@@ -172,11 +173,11 @@ Task<PgResult> PgConnectionImpl::sendAndReceive(std::string_view sql, std::vecto
     });
     if (flushResult == IoChannel::IoResult::Error)
     {
-        throw std::runtime_error(std::string("PQflush: ") + PQerrorMessage(pgConn_->raw));
+        throw PgConnectionError(std::string("PQflush: ") + PQerrorMessage(pgConn_->raw));
     }
     if (flushResult != IoChannel::IoResult::Success)
     {
-        throw std::runtime_error("PQflush: canceled");
+        throw PgConnectionError("PQflush: canceled");
     }
 
     std::shared_ptr<PgResultWrapper> res;
@@ -201,22 +202,22 @@ Task<PgResult> PgConnectionImpl::sendAndReceive(std::string_view sql, std::vecto
     });
     if (readResult == IoChannel::IoResult::Error)
     {
-        throw std::runtime_error(std::string("PQconsumeInput: ") + PQerrorMessage(pgConn_->raw));
+        throw PgConnectionError(std::string("PQconsumeInput: ") + PQerrorMessage(pgConn_->raw));
     }
     if (readResult != IoChannel::IoResult::Success)
     {
-        throw std::runtime_error("PgConnection: read canceled");
+        throw PgConnectionError("PgConnection: read canceled");
     }
     NITRO_TRACE("PgConnection: result received, res=%p", (void *)res.get());
 
     if (!res)
-        throw std::runtime_error("PgConnection: no result returned");
+        throw PgConnectionError("PgConnection: no result returned");
 
     ExecStatusType status = PQresultStatus(res->raw);
     if (status != PGRES_TUPLES_OK && status != PGRES_COMMAND_OK)
     {
         std::string err = PQresultErrorMessage(res->raw);
-        throw std::runtime_error("PgConnection query error: " + err);
+        throw PgQueryError("PgConnection query error: " + err);
     }
 
     co_return PgResult(std::move(res));

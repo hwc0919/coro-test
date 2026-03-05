@@ -5,7 +5,6 @@
 #pragma once
 
 #include "nitrocoro/pg/PgConnection.h"
-#include "nitrocoro/pg/PgResult.h"
 #include <nitrocoro/core/Task.h>
 
 #include <memory>
@@ -15,20 +14,24 @@
 namespace nitrocoro::pg
 {
 
-class PgTransaction
+class PgTransaction : public PgConnection
 {
 public:
     static Task<std::unique_ptr<PgTransaction>> begin(std::unique_ptr<PgConnection> conn);
 
-    ~PgTransaction();
+    ~PgTransaction() override;
 
     PgTransaction(const PgTransaction &) = delete;
     PgTransaction & operator=(const PgTransaction &) = delete;
     PgTransaction(PgTransaction &&) = delete;
     PgTransaction & operator=(PgTransaction &&) = delete;
 
-    Task<PgResult> query(std::string_view sql, std::vector<PgValue> params = {});
-    Task<> execute(std::string_view sql, std::vector<PgValue> params = {});
+    Scheduler * scheduler() const override;
+    bool isAlive() const override;
+
+    Task<PgResult> query(std::string_view sql, std::vector<PgValue> params = {}) override;
+    Task<> execute(std::string_view sql, std::vector<PgValue> params = {}) override;
+
     Task<> commit();
     Task<> rollback();
 
@@ -38,6 +41,7 @@ private:
     explicit PgTransaction(std::unique_ptr<PgConnection> conn);
 
     std::unique_ptr<PgConnection> conn_;
+    Scheduler * scheduler_;
     bool done_{ false };
 };
 
