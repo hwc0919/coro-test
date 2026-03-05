@@ -17,6 +17,7 @@ DIR="$OUTPUT_DIR/nitrocoro-$NAME"
 mkdir -p "$DIR/include/nitrocoro/$NAME"
 mkdir -p "$DIR/src"
 mkdir -p "$DIR/tests"
+mkdir -p "$DIR/cmake"
 
 SCRIPT_DIR=$(dirname "$0")
 sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/CMakeLists.txt.template" > "$DIR/CMakeLists.txt"
@@ -24,6 +25,7 @@ sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/README.md.template" 
 sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/Extension.h.template" > "$DIR/include/nitrocoro/$NAME/$CLASS.h"
 sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/Extension.cc.template" > "$DIR/src/$CLASS.cc"
 sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/test.cc.template" > "$DIR/tests/${NAME}_test.cc"
+sed "s/{{NAME}}/$NAME/g; s/{{CLASS}}/$CLASS/g" "$SCRIPT_DIR/cmake/nitrocoro-{{NAME}}Config.cmake.in" > "$DIR/cmake/nitrocoro-${NAME}Config.cmake.in"
 cp "$SCRIPT_DIR/../../.gitignore" "$DIR/.gitignore"
 
 echo "Created template project $DIR/"

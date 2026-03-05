@@ -27,6 +27,19 @@ else()
     message(FATAL_ERROR "Unknown NITROCORO_TLS_PROVIDER: ${NITROCORO_TLS_PROVIDER}")
 endif()
 
+include(GNUInstallDirs)
+
+install(TARGETS nitrocoro-tls
+    EXPORT nitrocoroTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/nitrocoro
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
 option(BUILD_TESTING "Build tests" ON)
 if (BUILD_TESTING)
     enable_testing()

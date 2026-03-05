@@ -44,11 +44,48 @@ add_library(nitrocoro-{{NAME}} STATIC
 )
 
 target_include_directories(nitrocoro-{{NAME}} PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(nitrocoro-{{NAME}} PUBLIC nitrocoro)
 
-add_executable({{NAME}}_test tests/{{NAME}}_test.cc)
-target_link_libraries({{NAME}}_test PRIVATE nitrocoro-{{NAME}})
-add_test(NAME {{NAME}}_test COMMAND {{NAME}}_test)
+# Installation
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS nitrocoro-{{NAME}}
+    EXPORT nitrocoro-{{NAME}}Targets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/nitrocoro
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT nitrocoro-{{NAME}}Targets
+    FILE nitrocoro-{{NAME}}Targets.cmake
+    NAMESPACE nitrocoro::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro-{{NAME}}
+)
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nitrocoro-{{NAME}}Config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoro-{{NAME}}Config.cmake
+    @ONLY
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoro-{{NAME}}Config.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro-{{NAME}}
+)
+
+option(BUILD_TESTING "Build tests" ON)
+if (BUILD_TESTING)
+    enable_testing()
+    add_executable({{NAME}}_test tests/{{NAME}}_test.cc)
+    target_link_libraries({{NAME}}_test PRIVATE nitrocoro-{{NAME}})
+    add_test(NAME {{NAME}}_test COMMAND {{NAME}}_test)
+endif()

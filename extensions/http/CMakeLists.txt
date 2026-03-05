@@ -17,10 +17,24 @@ add_library(nitrocoro-http STATIC
 )
 
 target_include_directories(nitrocoro-http PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(nitrocoro-http PUBLIC nitrocoro)
+
+include(GNUInstallDirs)
+
+install(TARGETS nitrocoro-http
+    EXPORT nitrocoroTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/nitrocoro
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
 
 option(BUILD_TESTING "Build tests" ON)
 if (BUILD_TESTING)

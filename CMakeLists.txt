@@ -48,7 +48,8 @@ add_library(nitrocoro STATIC
 )
 
 target_include_directories(nitrocoro PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 # Link pthread for threading support
@@ -65,24 +66,34 @@ endif ()
 # Extensions
 option(BUILD_ALL_EXTENSIONS "Build all extensions" OFF)
 if (BUILD_ALL_EXTENSIONS)
-    set(BUILD_EXT_HTTP ON)
-    set(BUILD_EXT_PG   ON)
-    set(BUILD_EXT_TLS  ON)
+    option(BUILD_EXT_HTTP "Build HTTP extension" ON)
+    option(BUILD_EXT_TLS "Build TLS extension" ON)
+    option(BUILD_EXT_PG "Build PostgreSQL extension" ON)
+else ()
+    option(BUILD_EXT_HTTP "Build HTTP extension" ON)
+    option(BUILD_EXT_TLS "Build TLS extension" OFF)
+    option(BUILD_EXT_PG "Build PostgreSQL extension" OFF)
 endif ()
 
-option(BUILD_EXT_HTTP "Build HTTP extension" ON)
 if (BUILD_EXT_HTTP)
+    message(STATUS "Building HTTP extension")
     add_subdirectory(extensions/http)
+else ()
+    message(STATUS "Skipping HTTP extension")
 endif ()
 
-option(BUILD_EXT_PG "Build PostgreSQL extension" OFF)
-if (BUILD_EXT_PG)
-    add_subdirectory(extensions/pg)
-endif ()
-
-option(BUILD_EXT_TLS "Build TLS extension" OFF)
 if (BUILD_EXT_TLS)
+    message(STATUS "Building TLS extension")
     add_subdirectory(extensions/tls)
+else ()
+    message(STATUS "Skipping TLS extension")
+endif ()
+
+if (BUILD_EXT_PG)
+    message(STATUS "Building PostgreSQL extension")
+    add_subdirectory(extensions/pg)
+else ()
+    message(STATUS "Skipping PostgreSQL extension")
 endif ()
 
 # Integration tests (must be after extensions)
@@ -94,3 +105,45 @@ endif ()
 if (BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif ()
+
+# Installation
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(NITROCORO_VERSION 0.1.0)
+
+install(TARGETS nitrocoro
+    EXPORT nitrocoroTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY include/nitrocoro
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT nitrocoroTargets
+    FILE nitrocoroTargets.cmake
+    NAMESPACE nitrocoro::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro
+)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nitrocoroConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoroConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoroConfigVersion.cmake
+    VERSION ${NITROCORO_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoroConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoroConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro
+)
