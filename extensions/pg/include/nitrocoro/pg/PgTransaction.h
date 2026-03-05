@@ -35,6 +35,26 @@ public:
     Task<> commit();
     Task<> rollback();
 
+    /**
+     * @brief Controls the destructor behavior when the transaction is not explicitly finished.
+     *
+     * @warning **Exception-unsafe**: if autoCommit is true, the destructor will commit even
+     * if an exception was thrown — you may commit partial or unintended changes.
+     * Prefer explicit commit() unless you are certain no exception can occur.
+     *
+     * Default: false (destructor rolls back).
+     */
+    void setAutoCommit(bool autoCommit) { autoCommit_ = autoCommit; }
+
+    /**
+     * @brief Returns the underlying connection after the transaction has been committed or rolled-back.
+     *
+     * The returned connection can be reused for further queries outside a transaction.
+     * Throws PgTransactionError if called before commit() or rollback().
+     *
+     * @note If the transaction was created from a pooled connection, the released connection
+     * is still automatically recycled to the pool when destroyed.
+     */
     std::unique_ptr<PgConnection> release();
 
 private:
@@ -43,6 +63,7 @@ private:
     std::unique_ptr<PgConnection> conn_;
     Scheduler * scheduler_;
     bool done_{ false };
+    bool autoCommit_{ false };
 };
 
 } // namespace nitrocoro::pg

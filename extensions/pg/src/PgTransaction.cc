@@ -23,18 +23,19 @@ PgTransaction::PgTransaction(std::unique_ptr<PgConnection> conn)
 
 PgTransaction::~PgTransaction()
 {
-    if (conn_ && !done_)
+    if (!done_)
     {
         auto conn = std::move(conn_);
-        conn->scheduler()->spawn([conn = std::move(conn)]() -> Task<> {
+        const bool doCommit = autoCommit_;
+        scheduler_->spawn([conn = std::move(conn), doCommit]() -> Task<> {
             try
             {
-                co_await conn->execute("ROLLBACK");
-                NITRO_TRACE("PgTransaction: auto rollback successful\n");
+                co_await conn->execute(doCommit ? "COMMIT" : "ROLLBACK");
+                NITRO_TRACE("PgTransaction: auto %s successful\n", doCommit ? "commit" : "rollback");
             }
             catch (const std::exception & e)
             {
-                NITRO_ERROR("PgTransaction: auto rollback failed: %s\n", e.what());
+                NITRO_ERROR("PgTransaction: auto %s failed: %s\n", doCommit ? "commit" : "rollback", e.what());
             }
         });
     }
