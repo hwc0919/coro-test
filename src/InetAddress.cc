@@ -108,4 +108,14 @@ bool InetAddress::isLoopbackIp() const
     return false;
 }
 
+InetAddress InetAddress::getLocalAddr(int fd)
+{
+    sockaddr_in6 ss{};
+    socklen_t len = sizeof(ss);
+    ::getsockname(fd, reinterpret_cast<sockaddr *>(&ss), &len);
+    if (ss.sin6_family == AF_INET6)
+        return InetAddress(ss);
+    return InetAddress(*reinterpret_cast<sockaddr_in *>(&ss));
+}
+
 } // namespace nitrocoro::net

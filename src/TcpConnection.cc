@@ -98,12 +98,14 @@ Task<TcpConnectionPtr> TcpConnection::connect(const InetAddress & addr)
     auto result = co_await channelPtr->performWrite(&connector);
     if (result != Channel::IoResult::Success)
         throw std::runtime_error("TCP connect failed");
-    co_return std::make_shared<TcpConnection>(std::move(channelPtr), std::move(socket));
+    co_return std::make_shared<TcpConnection>(std::move(channelPtr), std::move(socket), InetAddress::getLocalAddr(fd), addr);
 }
 
-TcpConnection::TcpConnection(std::unique_ptr<Channel> channelPtr, std::shared_ptr<Socket> socket)
+TcpConnection::TcpConnection(std::unique_ptr<Channel> channelPtr, std::shared_ptr<Socket> socket, InetAddress localAddr, InetAddress peerAddr)
     : socket_(std::move(socket))
     , ioChannelPtr_(std::move(channelPtr))
+    , localAddr_(localAddr)
+    , peerAddr_(peerAddr)
 {
     state_ = State::Connected;
     ioChannelPtr_->enableReading();

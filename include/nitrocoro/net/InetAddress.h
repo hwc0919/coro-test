@@ -8,8 +8,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #endif
 
@@ -21,7 +21,7 @@ namespace nitrocoro::net
 class InetAddress
 {
 public:
-    InetAddress(uint16_t port = 0, bool loopback_only = false, bool ipv6 = false);
+    explicit InetAddress(uint16_t port = 0, bool loopback_only = false, bool ipv6 = false);
     InetAddress(const std::string & ip, uint16_t port, bool ipv6 = false);
     explicit InetAddress(const struct sockaddr_in & addr);
     explicit InetAddress(const struct sockaddr_in6 & addr);
@@ -45,9 +45,10 @@ public:
     uint32_t ipNetEndian() const { return addr_.sin_addr.s_addr; }
     uint16_t portNetEndian() const { return addr_.sin_port; }
 
+    static InetAddress getLocalAddr(int fd);
+
 private:
-    union
-    {
+    union {
         struct sockaddr_in addr_;
         struct sockaddr_in6 addr6_;
     };

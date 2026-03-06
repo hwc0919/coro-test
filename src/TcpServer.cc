@@ -21,7 +21,12 @@ using io::Channel;
 using net::Socket;
 
 TcpServer::TcpServer(uint16_t port, Scheduler * scheduler)
-    : port_(port)
+    : TcpServer(InetAddress(port), scheduler)
+{
+}
+
+TcpServer::TcpServer(const InetAddress & addr, Scheduler * scheduler)
+    : addr_(addr)
     , scheduler_(scheduler)
     , stopPromise_(scheduler)
     , stopFuture_(stopPromise_.get_future().share())
@@ -33,7 +38,7 @@ TcpServer::~TcpServer() = default;
 
 void TcpServer::setup_socket()
 {
-    int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    int fd = ::socket(addr_.family(), SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd < 0)
         throw std::runtime_error("Failed to create socket");
     listenSocketPtr_ = std::make_shared<Socket>(fd);
@@ -42,18 +47,27 @@ void TcpServer::setup_socket()
     ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     ::setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port_);
-    if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
+    if (addr_.isIpV6())
+    {
+        int v6only = 1;
+        ::setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
+    }
+
+    socklen_t addrLen = addr_.isIpV6() ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
+    if (::bind(fd, addr_.getSockAddr(), addrLen) < 0)
         throw std::runtime_error(std::string("Failed to bind socket: ") + strerror(errno));
 
-    if (port_ == 0)
+    if (addr_.toPort() == 0)
     {
-        socklen_t addrLen = sizeof(addr);
-        if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &addrLen) == 0)
-            port_ = ntohs(addr.sin_port);
+        sockaddr_storage ss{};
+        socklen_t ssLen = sizeof(ss);
+        if (::getsockname(fd, reinterpret_cast<sockaddr *>(&ss), &ssLen) == 0)
+        {
+            if (addr_.isIpV6())
+                addr_.setSockAddrInet6(*reinterpret_cast<sockaddr_in6 *>(&ss));
+            else
+                addr_ = InetAddress(*reinterpret_cast<sockaddr_in *>(&ss));
+        }
     }
 }
 
@@ -61,11 +75,11 @@ struct Acceptor
 {
     Channel::IoStatus operator()(int fd, Channel *)
     {
-        socklen_t len = sizeof(clientAddr_);
-        int connfd = ::accept4(fd, reinterpret_cast<struct sockaddr *>(&clientAddr_), &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        if (connfd >= 0)
+        socklen_t len = sizeof(sockaddr_in6);
+        int connFd = ::accept4(fd, reinterpret_cast<struct sockaddr *>(&clientAddr_), &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        if (connFd >= 0)
         {
-            socket_ = std::make_shared<Socket>(connfd);
+            socket_ = std::make_shared<Socket>(connFd);
             return Channel::IoStatus::Success;
         }
         switch (errno)
@@ -83,10 +97,15 @@ struct Acceptor
     }
 
     std::shared_ptr<Socket> takeSocket() { return std::move(socket_); }
-    const struct sockaddr_in & clientAddr() const { return clientAddr_; }
+    InetAddress takeClientAddr()
+    {
+        if (clientAddr_.sin6_family == AF_INET6)
+            return InetAddress(clientAddr_);
+        return InetAddress(*reinterpret_cast<sockaddr_in *>(&clientAddr_));
+    }
 
 private:
-    struct sockaddr_in clientAddr_{};
+    sockaddr_in6 clientAddr_{};
     std::shared_ptr<Socket> socket_;
 };
 
@@ -104,7 +123,7 @@ Task<> TcpServer::start(ConnectionHandler handler)
         stopPromise_.set_value();
         throw std::runtime_error(std::string("Failed to listen: ") + strerror(errno));
     }
-    NITRO_DEBUG("TcpServer listening on port %hu", port_);
+    NITRO_DEBUG("TcpServer listening on port %hu", addr_.toPort());
 
     auto handlerPtr = std::make_shared<ConnectionHandler>(std::move(handler));
     std::weak_ptr<ConnectionSet> weakConnSet{ connSetPtr_ };
@@ -128,9 +147,10 @@ Task<> TcpServer::start(ConnectionHandler handler)
 
         NITRO_DEBUG("Accepted connection");
         auto socket = acceptor.takeSocket();
+        auto peerAddr = acceptor.takeClientAddr();
         auto ioChannelPtr = std::make_unique<Channel>(socket->fd(), TriggerMode::EdgeTriggered, scheduler_);
         ioChannelPtr->setGuard(socket);
-        auto connPtr = std::make_shared<TcpConnection>(std::move(ioChannelPtr), socket);
+        auto connPtr = std::make_shared<TcpConnection>(std::move(ioChannelPtr), socket, addr_, peerAddr);
         connSetPtr_->insert(connPtr);
         scheduler_->spawn([scheduler = scheduler_, handlerPtr, connPtr, weakConnSet]() mutable -> Task<> {
             try

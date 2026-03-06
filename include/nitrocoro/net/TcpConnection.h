@@ -25,7 +25,7 @@ class TcpConnection
 public:
     static Task<TcpConnectionPtr> connect(const InetAddress & addr);
 
-    explicit TcpConnection(std::unique_ptr<Channel>, std::shared_ptr<Socket>);
+    TcpConnection(std::unique_ptr<Channel>, std::shared_ptr<Socket>, InetAddress localAddr, InetAddress peerAddr);
     ~TcpConnection();
 
     TcpConnection(const TcpConnection &) = delete;
@@ -49,11 +49,15 @@ public:
     };
 
     State state() const { return state_; }
+    const InetAddress & localAddr() const { return localAddr_; }
+    const InetAddress & peerAddr() const { return peerAddr_; }
 
 private:
     std::shared_ptr<Socket> socket_;
     std::unique_ptr<Channel> ioChannelPtr_;
     State state_ = State::None;
+    InetAddress localAddr_;
+    InetAddress peerAddr_;
 };
 
 } // namespace nitrocoro::net

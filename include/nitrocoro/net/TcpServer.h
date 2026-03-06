@@ -7,6 +7,7 @@
 #include <nitrocoro/core/Future.h>
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
+#include <nitrocoro/net/InetAddress.h>
 #include <nitrocoro/net/Socket.h>
 #include <nitrocoro/net/TcpConnection.h>
 
@@ -36,6 +37,7 @@ public:
     using ConnectionHandler = std::function<Task<>(std::shared_ptr<TcpConnection>)>;
 
     explicit TcpServer(uint16_t port, Scheduler * scheduler = Scheduler::current());
+    explicit TcpServer(const InetAddress & addr, Scheduler * scheduler = Scheduler::current());
     ~TcpServer();
 
     /**
@@ -49,12 +51,12 @@ public:
     Task<> stop();
     Task<> wait() const;
 
-    uint16_t port() const { return port_; }
+    uint16_t port() const { return addr_.toPort(); }
 
 private:
     void setup_socket();
 
-    uint16_t port_;
+    InetAddress addr_;
     Scheduler * scheduler_;
     std::shared_ptr<net::Socket> listenSocketPtr_;
     std::atomic_bool started_{ false };
