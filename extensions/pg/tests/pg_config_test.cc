@@ -54,6 +54,53 @@ NITRO_TEST(toConnStr_partial_fields)
     co_return;
 }
 
+NITRO_TEST(toConnStr_statement_timeout)
+{
+    PgConnectConfig cfg;
+    cfg.statementTimeoutMs = 5000;
+
+    auto s = cfg.toConnStr();
+    NITRO_CHECK(s.find("statement_timeout=5000ms") != std::string::npos);
+    NITRO_CHECK(s.find("options=") != std::string::npos);
+
+    co_return;
+}
+
+NITRO_TEST(toConnStr_lock_timeout)
+{
+    PgConnectConfig cfg;
+    cfg.lockTimeoutMs = 2000;
+
+    auto s = cfg.toConnStr();
+    NITRO_CHECK(s.find("lock_timeout=2000ms") != std::string::npos);
+
+    co_return;
+}
+
+NITRO_TEST(toConnStr_options_override_predefined)
+{
+    PgConnectConfig cfg;
+    cfg.statementTimeoutMs = 5000;
+    cfg.options["statement_timeout"] = "9999ms"; // explicit override
+
+    auto s = cfg.toConnStr();
+    NITRO_CHECK(s.find("statement_timeout=9999ms") != std::string::npos);
+    NITRO_CHECK(s.find("statement_timeout=5000ms") == std::string::npos);
+
+    co_return;
+}
+
+NITRO_TEST(toConnStr_application_name)
+{
+    PgConnectConfig cfg;
+    cfg.applicationName = "myapp";
+
+    auto s = cfg.toConnStr();
+    NITRO_CHECK(s.find("application_name=myapp") != std::string::npos);
+
+    co_return;
+}
+
 int main()
 {
     return nitrocoro::test::run_all();

@@ -7,20 +7,26 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 namespace nitrocoro::pg
 {
 
 struct PgConnectConfig
 {
-    std::string connStr; ///< if non-empty, used as-is (overrides all other fields)
     std::string host = "localhost";
     uint16_t port = 5432;
     std::string dbname;
     std::string user;
     std::string password;
 
+    int statementTimeoutMs = 0;                           ///< 0 = disabled; maps to statement_timeout conn option (ms)
+    int lockTimeoutMs = 0;                                ///< 0 = disabled; maps to lock_timeout conn option (ms)
+    std::string applicationName;                          ///< maps to application_name conn option
+    std::unordered_map<std::string, std::string> options; ///< arbitrary conn options (-c key=value); overrides predefined fields if same key
+
     std::string toConnStr() const;
+    static PgConnectConfig parseConnStr(const std::string & s);
 };
 
 struct PgPoolConfig

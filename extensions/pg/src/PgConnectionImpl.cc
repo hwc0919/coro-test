@@ -18,8 +18,6 @@ using nitrocoro::io::Channel;
 
 std::string PgConnectConfig::toConnStr() const
 {
-    if (!connStr.empty())
-        return connStr;
     std::string s;
     s += "host='" + host + "' ";
     s += "port='" + std::to_string(port) + "' ";
@@ -29,7 +27,88 @@ std::string PgConnectConfig::toConnStr() const
         s += "user='" + user + "' ";
     if (!password.empty())
         s += "password='" + password + "' ";
+
+    // Merge predefined fields into connOptions; explicit options override predefined fields
+    std::unordered_map<std::string, std::string> connOptions;
+    if (statementTimeoutMs > 0)
+        connOptions["statement_timeout"] = std::to_string(statementTimeoutMs) + "ms";
+    if (lockTimeoutMs > 0)
+        connOptions["lock_timeout"] = std::to_string(lockTimeoutMs) + "ms";
+    if (!applicationName.empty())
+        connOptions["application_name"] = applicationName;
+    for (auto & [k, v] : options)
+        connOptions[k] = v;
+
+    if (!connOptions.empty())
+    {
+        std::string opts;
+        for (auto & [k, v] : connOptions)
+            opts += "-c " + k + "=" + v + " ";
+        s += "options='" + opts + "' ";
+    }
     return s;
+}
+
+PgConnectConfig PgConnectConfig::parseConnStr(const std::string & s)
+{
+    char * errmsg = nullptr;
+    PQconninfoOption * opts = PQconninfoParse(s.c_str(), &errmsg);
+    if (!opts)
+    {
+        std::string err = errmsg ? errmsg : "unknown error";
+        PQfreemem(errmsg);
+        throw PgConnectionError("PgConnectConfig::parseConnStr: " + err);
+    }
+
+    PgConnectConfig cfg;
+    for (PQconninfoOption * o = opts; o->keyword; ++o)
+    {
+        if (!o->val)
+            continue;
+        std::string_view kw(o->keyword);
+        std::string_view val(o->val);
+        if (kw == "host")
+            cfg.host = val;
+        else if (kw == "port")
+            cfg.port = static_cast<uint16_t>(std::stoi(std::string(val)));
+        else if (kw == "dbname")
+            cfg.dbname = val;
+        else if (kw == "user")
+            cfg.user = val;
+        else if (kw == "password")
+            cfg.password = val;
+        else if (kw == "options")
+        {
+            // parse "-c key=value" pairs from the options string
+            std::string optStr(val);
+            size_t pos = 0;
+            while (pos < optStr.size())
+            {
+                // skip whitespace
+                while (pos < optStr.size() && optStr[pos] == ' ')
+                    ++pos;
+                if (pos + 2 < optStr.size() && optStr.substr(pos, 2) == "-c")
+                {
+                    pos += 2;
+                    while (pos < optStr.size() && optStr[pos] == ' ')
+                        ++pos;
+                    size_t eq = optStr.find('=', pos);
+                    size_t sp = optStr.find(' ', pos);
+                    if (eq != std::string::npos)
+                    {
+                        std::string key = optStr.substr(pos, eq - pos);
+                        std::string v = optStr.substr(eq + 1, sp == std::string::npos ? sp : sp - eq - 1);
+                        cfg.options[key] = v;
+                        pos = sp == std::string::npos ? optStr.size() : sp;
+                    }
+                }
+                else
+                    break;
+            }
+        }
+    }
+    PQconninfoFree(opts);
+    return cfg;
 }
 
 struct PgConnectionImpl::PgConnWrapper

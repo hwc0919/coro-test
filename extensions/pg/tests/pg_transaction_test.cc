@@ -28,12 +28,12 @@ static PgPoolConfig makePoolConfig(size_t maxSize = 1)
     PgPoolConfig cfg;
     const char * env = std::getenv("PG_CONN_STR");
     if (env)
-        cfg.connect.connStr = env;
+        cfg.connect = PgConnectConfig::parseConnStr(env);
     else
     {
-        cfg.connect.host   = "localhost";
+        cfg.connect.host = "localhost";
         cfg.connect.dbname = "test";
-        cfg.connect.user   = "postgres";
+        cfg.connect.user = "postgres";
     }
     cfg.maxSize = maxSize;
     return cfg;

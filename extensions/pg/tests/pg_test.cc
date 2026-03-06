@@ -7,12 +7,25 @@
  *   PG_CONN_STR="host=localhost dbname=test user=postgres password=secret" ./pg_test
  */
 #include <nitrocoro/pg/PgConnection.h>
+#include <nitrocoro/pg/PgException.h>
 #include <nitrocoro/testing/Test.h>
 
 #include <cstdlib>
 
 using namespace nitrocoro;
 using namespace nitrocoro::pg;
+
+static PgConnectConfig baseConfig()
+{
+    const char * env = std::getenv("PG_CONN_STR");
+    if (env)
+        return PgConnectConfig::parseConnStr(env);
+    PgConnectConfig cfg;
+    cfg.host = "localhost";
+    cfg.dbname = "test";
+    cfg.user = "postgres";
+    return cfg;
+}
 
 static std::string connStr()
 {
@@ -133,6 +146,56 @@ NITRO_TEST(transaction_basic)
     co_await conn->execute("COMMIT");
     result = co_await conn->query("SELECT v FROM tx_test");
     NITRO_CHECK(std::get<int64_t>(result.get(0, 0)) == 99);
+}
+
+NITRO_TEST(statement_timeout_triggers_error)
+{
+    auto cfg = baseConfig();
+    cfg.statementTimeoutMs = 1;
+
+    auto conn = co_await PgConnection::connect(cfg);
+    bool threw = false;
+    try
+    {
+        co_await conn->query("SELECT pg_sleep(5)");
+    }
+    catch (const PgQueryError & ex)
+    {
+        NITRO_INFO("Expected exception: %s", ex.what());
+        threw = true;
+    }
+    NITRO_CHECK(threw);
+}
+
+NITRO_TEST(lock_timeout_triggers_error)
+{
+    auto cfg = baseConfig();
+    cfg.lockTimeoutMs = 1;
+
+    auto conn1 = co_await PgConnection::connect(baseConfig());
+    auto conn2 = co_await PgConnection::connect(cfg);
+
+    co_await conn1->execute("CREATE TABLE IF NOT EXISTS lock_timeout_test (v INT)");
+    co_await conn1->execute("INSERT INTO lock_timeout_test VALUES (1)");
+    co_await conn1->execute("BEGIN");
+    co_await conn1->execute("SELECT * FROM lock_timeout_test LIMIT 1 FOR UPDATE");
+
+    bool threw = false;
+    try
+    {
+        co_await conn2->execute("BEGIN");
+        co_await conn2->execute("SELECT * FROM lock_timeout_test LIMIT 1 FOR UPDATE");
+    }
+    catch (const PgQueryError & ex)
+    {
+        NITRO_INFO("Expected exception: %s", ex.what());
+        threw = true;
+    }
+    NITRO_CHECK(threw);
+
+    co_await conn1->execute("ROLLBACK");
+    co_await conn2->execute("ROLLBACK");
+    co_await conn1->execute("DROP TABLE IF EXISTS lock_timeout_test");
 }
 
 int main()

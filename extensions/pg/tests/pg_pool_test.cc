@@ -20,7 +20,7 @@ static PgPoolConfig makeConfig(size_t maxSize = 2)
     PgPoolConfig cfg;
     const char * env = std::getenv("PG_CONN_STR");
     if (env)
-        cfg.connect.connStr = env;
+        cfg.connect = PgConnectConfig::parseConnStr(env);
     else
     {
         cfg.connect.host = "localhost";
