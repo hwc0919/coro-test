@@ -155,17 +155,7 @@ NITRO_TEST(connect_timeout)
     cfg.dbname = "test";
     cfg.connectTimeoutMs = 100;
 
-    bool threw = false;
-    try
-    {
-        co_await PgConnection::connect(cfg);
-    }
-    catch (const PgTimeoutError & ex)
-    {
-        NITRO_INFO("Expected exception: %s", ex.what());
-        threw = true;
-    }
-    NITRO_CHECK(threw);
+    NITRO_CHECK_THROWS_AS(co_await PgConnection::connect(cfg), PgTimeoutError);
 }
 
 NITRO_TEST(statement_timeout_triggers_error)
@@ -174,17 +164,7 @@ NITRO_TEST(statement_timeout_triggers_error)
     cfg.statementTimeoutMs = 1;
 
     auto conn = co_await PgConnection::connect(cfg);
-    bool threw = false;
-    try
-    {
-        co_await conn->query("SELECT pg_sleep(5)");
-    }
-    catch (const PgQueryError & ex)
-    {
-        NITRO_INFO("Expected exception: %s", ex.what());
-        threw = true;
-    }
-    NITRO_CHECK(threw);
+    NITRO_CHECK_THROWS_AS(co_await conn->query("SELECT pg_sleep(5)"), PgQueryError);
 }
 
 NITRO_TEST(lock_timeout_triggers_error)
@@ -200,18 +180,8 @@ NITRO_TEST(lock_timeout_triggers_error)
     co_await conn1->execute("BEGIN");
     co_await conn1->execute("SELECT * FROM lock_timeout_test LIMIT 1 FOR UPDATE");
 
-    bool threw = false;
-    try
-    {
-        co_await conn2->execute("BEGIN");
-        co_await conn2->execute("SELECT * FROM lock_timeout_test LIMIT 1 FOR UPDATE");
-    }
-    catch (const PgQueryError & ex)
-    {
-        NITRO_INFO("Expected exception: %s", ex.what());
-        threw = true;
-    }
-    NITRO_CHECK(threw);
+    co_await conn2->execute("BEGIN");
+    NITRO_CHECK_THROWS_AS(co_await conn2->execute("SELECT * FROM lock_timeout_test LIMIT 1 FOR UPDATE"), PgQueryError);
 
     co_await conn1->execute("ROLLBACK");
     co_await conn2->execute("ROLLBACK");
