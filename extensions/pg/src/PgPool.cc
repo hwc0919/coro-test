@@ -2,6 +2,7 @@
  * @file PgPool.cc
  * @brief PgPool implementation
  */
+#include <nitrocoro/core/CancelToken.h>
 #include <nitrocoro/pg/PgPool.h>
 
 #include "PgConnectionImpl.h"
@@ -55,7 +56,12 @@ Task<std::unique_ptr<PgConnection>> PgPool::acquire()
         std::exception_ptr err;
         try
         {
-            conn = co_await PgConnectionImpl::connect(connStr_, state_->scheduler);
+            CancelSource timeoutSource(state_->scheduler);
+            if (config_.connect.connectTimeoutMs > 0)
+            {
+                timeoutSource.cancelAfter(std::chrono::milliseconds(config_.connect.connectTimeoutMs));
+            }
+            conn = co_await PgConnectionImpl::connect(connStr_, timeoutSource.token(), state_->scheduler);
         }
         catch (...)
         {

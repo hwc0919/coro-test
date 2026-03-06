@@ -134,17 +134,17 @@ PgConnectionImpl::PgConnectionImpl(std::shared_ptr<PgConnWrapper> conn, std::uni
 Task<std::unique_ptr<PgConnectionImpl>> PgConnectionImpl::connect(const PgConnectConfig & config, Scheduler * scheduler)
 {
     if (config.connectTimeoutMs <= 0)
-        co_return co_await connect(config.toConnStr(), scheduler);
+        co_return co_await connect(config.toConnStr(), {}, scheduler);
 
     CancelSource timeoutSource(scheduler);
     timeoutSource.cancelAfter(std::chrono::microseconds(config.connectTimeoutMs));
 
-    co_return co_await connect(config.toConnStr(), scheduler, timeoutSource.token());
+    co_return co_await connect(config.toConnStr(), timeoutSource.token(), scheduler);
 }
 
 Task<std::unique_ptr<PgConnectionImpl>> PgConnectionImpl::connect(std::string connStr,
-                                                                  Scheduler * scheduler,
-                                                                  CancelToken cancelToken)
+                                                                  CancelToken cancelToken,
+                                                                  Scheduler * scheduler)
 {
     auto pgConn = std::make_shared<PgConnectionImpl::PgConnWrapper>(PQconnectStart(connStr.c_str()));
     if (!pgConn->raw)
@@ -195,9 +195,9 @@ Task<std::unique_ptr<PgConnection>> PgConnection::connect(const PgConnectConfig 
     co_return co_await PgConnectionImpl::connect(config, scheduler);
 }
 
-Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, Scheduler * scheduler)
+Task<std::unique_ptr<PgConnection>> PgConnection::connect(std::string connStr, CancelToken cancelToken, Scheduler * scheduler)
 {
-    co_return co_await PgConnectionImpl::connect(std::move(connStr), scheduler);
+    co_return co_await PgConnectionImpl::connect(std::move(connStr), cancelToken, scheduler);
 }
 
 Scheduler * PgConnectionImpl::scheduler() const

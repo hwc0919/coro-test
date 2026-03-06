@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <nitrocoro/core/CancelToken.h>
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/pg/PgConfig.h>
@@ -20,9 +21,10 @@ namespace nitrocoro::pg
 class PgConnection
 {
 public:
-    static Task<std::unique_ptr<PgConnection>> connect(std::string connStr,
-                                                       Scheduler * scheduler = Scheduler::current());
     static Task<std::unique_ptr<PgConnection>> connect(const PgConnectConfig & config,
+                                                       Scheduler * scheduler = Scheduler::current());
+    static Task<std::unique_ptr<PgConnection>> connect(std::string connStr,
+                                                       CancelToken cancelToken = {},
                                                        Scheduler * scheduler = Scheduler::current());
 
     PgConnection(const PgConnection &) = delete;
