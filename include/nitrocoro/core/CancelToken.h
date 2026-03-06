@@ -6,6 +6,7 @@
 
 #include <nitrocoro/core/LockFreeList.h>
 #include <nitrocoro/core/Scheduler.h>
+#include <nitrocoro/core/Task.h>
 
 #include <atomic>
 #include <coroutine>
@@ -33,9 +34,16 @@ struct CancelState
 
     std::atomic<LockFreeListNode *> waiters_{ nullptr };
 
+    struct Callback
+    {
+        uint64_t id;
+        std::function<void()> fn;
+        Scheduler * sched; // dispatch target; nullptr = call inline
+    };
+
     // callbacks protected by mutex (cancel() may be called from any thread)
     std::mutex cbMutex_;
-    std::vector<std::pair<uint64_t, std::function<void()>>> callbacks_;
+    std::vector<Callback> callbacks_;
     uint64_t nextId_{ 0 };
 
     bool isCancelled() const noexcept
@@ -55,8 +63,13 @@ struct CancelState
             std::lock_guard lock(cbMutex_);
             cbs.swap(callbacks_);
         }
-        for (auto & [id, cb] : cbs)
-            cb();
+        for (auto & cb : cbs)
+        {
+            if (cb.sched)
+                cb.sched->dispatch(std::move(cb.fn));
+            else
+                cb.fn();
+        }
 
         // resume waiters
         for (auto * n = head; n;)
@@ -70,16 +83,19 @@ struct CancelState
         }
     }
 
-    uint64_t addCallback(std::function<void()> cb)
+    uint64_t addCallback(std::function<void()> cb, Scheduler * sched = Scheduler::current())
     {
         std::lock_guard lock(cbMutex_);
         if (isCancelled())
         {
-            cb();
+            if (sched)
+                sched->dispatch(std::move(cb));
+            else
+                cb();
             return 0;
         }
         uint64_t id = ++nextId_;
-        callbacks_.emplace_back(id, std::move(cb));
+        callbacks_.push_back({ id, std::move(cb), sched });
         return id;
     }
 
@@ -88,7 +104,7 @@ struct CancelState
         if (id == 0)
             return;
         std::lock_guard lock(cbMutex_);
-        auto it = std::find_if(callbacks_.begin(), callbacks_.end(), [id](auto & p) { return p.first == id; });
+        auto it = std::find_if(callbacks_.begin(), callbacks_.end(), [id](auto & c) { return c.id == id; });
         if (it != callbacks_.end())
             callbacks_.erase(it);
     }
@@ -140,7 +156,7 @@ public:
     {
         if (!state_)
             return {};
-        uint64_t id = state_->addCallback(std::move(cb));
+        uint64_t id = state_->addCallback(std::move(cb), Scheduler::current());
         return CancelRegistration(state_, id);
     }
 
@@ -185,8 +201,9 @@ private:
 class CancelSource
 {
 public:
-    CancelSource()
+    explicit CancelSource(Scheduler * sched = Scheduler::current())
         : state_(std::make_shared<detail::CancelState>())
+        , sched_(sched)
     {
     }
 
@@ -198,8 +215,26 @@ public:
 
     bool isCancelled() const noexcept { return state_->isCancelled(); }
 
+    void cancelAfter(std::chrono::steady_clock::duration dur)
+    {
+        auto * sched = sched_;
+        std::weak_ptr<detail::CancelState> weak = state_;
+        sched->spawn([weak, dur, sched]() -> Task<> {
+            co_await sched->sleep_for(dur);
+            if (auto s = weak.lock())
+                s->cancel();
+        });
+    }
+
+    void cancelAfter(double seconds)
+    {
+        cancelAfter(std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(seconds)));
+    }
+
 private:
     std::shared_ptr<detail::CancelState> state_;
+    Scheduler * sched_;
 };
 
 } // namespace nitrocoro
