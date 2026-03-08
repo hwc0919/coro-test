@@ -219,3 +219,105 @@ void Channel::cancelAll()
 }
 
 } // namespace nitrocoro::io
+
+// ============================================================
+// CallbackChannel
+// ============================================================
+
+#include <nitrocoro/io/CallbackChannel.h>
+
+namespace nitrocoro::io
+{
+
+struct CallbackChannel::State
+{
+    std::function<void()> onReadable;
+    std::function<void()> onWritable;
+    std::function<void()> onClose;
+    std::function<void()> onError;
+};
+
+CallbackChannel::CallbackChannel(int fd, Scheduler * scheduler)
+    : id_(Scheduler::nextIoId())
+    , fd_(fd)
+    , scheduler_(scheduler)
+    , state_(std::make_shared<State>())
+{
+    scheduler->schedule([id = id_, fd, weakState = std::weak_ptr(state_), scheduler]() {
+        if (auto _ = weakState.lock())
+        {
+            scheduler->setIoHandler(id, fd, [weakState](int, uint32_t ev) {
+                if (auto state = weakState.lock())
+                    handleIoEvents(state.get(), ev);
+            });
+        }
+    });
+}
+
+CallbackChannel::~CallbackChannel() noexcept
+{
+    scheduler_->schedule([id = id_, scheduler = scheduler_, guard = std::move(guard_)]() mutable {
+        scheduler->removeIo(id);
+        guard.reset();
+    });
+}
+
+void CallbackChannel::handleIoEvents(State * state, uint32_t ev)
+{
+    if ((ev & EPOLLHUP) && !(ev & EPOLLIN) && state->onClose)
+        state->onClose();
+    if ((ev & EPOLLERR) && state->onError)
+        state->onError();
+    if ((ev & EPOLLIN) && state->onReadable)
+        state->onReadable();
+    if ((ev & EPOLLOUT) && state->onWritable)
+        state->onWritable();
+}
+
+void CallbackChannel::setEvents(uint32_t newEvents)
+{
+    if (events_ == newEvents)
+        return;
+    events_ = newEvents;
+    scheduler_->updateIo(id_, fd_, events_, TriggerMode::LevelTriggered);
+}
+
+void CallbackChannel::enableReading()
+{
+    setEvents(events_ | EPOLLIN);
+}
+void CallbackChannel::disableReading()
+{
+    setEvents(events_ & ~EPOLLIN);
+}
+void CallbackChannel::enableWriting()
+{
+    setEvents(events_ | EPOLLOUT);
+}
+void CallbackChannel::disableWriting()
+{
+    setEvents(events_ & ~EPOLLOUT);
+}
+void CallbackChannel::disableAll()
+{
+    setEvents(0);
+}
+
+void CallbackChannel::setReadableCallback(std::function<void()> cb)
+{
+    state_->onReadable = std::move(cb);
+}
+void CallbackChannel::setWritableCallback(std::function<void()> cb)
+{
+    state_->onWritable = std::move(cb);
+}
+void CallbackChannel::setCloseCallback(std::function<void()> cb)
+{
+    state_->onClose = std::move(cb);
+}
+void CallbackChannel::setErrorCallback(std::function<void()> cb)
+{
+    state_->onError = std::move(cb);
+}
+
+} // namespace nitrocoro::io
