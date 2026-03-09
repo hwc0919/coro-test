@@ -204,6 +204,90 @@ NITRO_TEST(tcp_ipv4_loopback_listen)
     co_await server.stop();
 }
 
+/** shutdown() sends FIN; server read returns 0; client state becomes LocalShutdown. */
+NITRO_TEST(tcp_shutdown)
+{
+    TcpServer server(0);
+    uint16_t port = server.port();
+    Promise<size_t> serverRead(Scheduler::current());
+    auto fRead = serverRead.get_future();
+
+    Scheduler::current()->spawn([TEST_CTX, &server, &serverRead]() -> Task<> {
+        co_await server.start([&serverRead](TcpConnectionPtr conn) -> Task<> {
+            char buf[64];
+            size_t n = co_await conn->read(buf, sizeof(buf));
+            serverRead.set_value(n);
+        });
+    });
+
+    co_await server.started();
+
+    auto conn = co_await TcpConnection::connect({ "127.0.0.1", port });
+    co_await conn->shutdown();
+
+    size_t n = co_await fRead.get();
+    NITRO_CHECK_EQ(n, 0u);
+    NITRO_CHECK(conn->state() == TcpConnection::State::LocalShutdown);
+
+    co_await server.stop();
+}
+
+/** shutdown() is idempotent — calling it twice does not crash or change state. */
+NITRO_TEST(tcp_shutdown_idempotent)
+{
+    TcpServer server(0);
+    uint16_t port = server.port();
+
+    Scheduler::current()->spawn([TEST_CTX, &server]() -> Task<> {
+        co_await server.start([](TcpConnectionPtr conn) -> Task<> {
+            char buf[64];
+            co_await conn->read(buf, sizeof(buf));
+        });
+    });
+
+    co_await server.started();
+
+    auto conn = co_await TcpConnection::connect({ "127.0.0.1", port });
+    co_await conn->shutdown();
+    co_await conn->shutdown(); // second call must be a no-op
+    NITRO_CHECK(conn->state() == TcpConnection::State::LocalShutdown);
+
+    co_await server.stop();
+}
+
+/** forceClose() closes the fd; server read returns 0 or throws; client state becomes Closed. */
+NITRO_TEST(tcp_force_close)
+{
+    TcpServer server(0);
+    uint16_t port = server.port();
+    Promise<> serverDone(Scheduler::current());
+
+    Scheduler::current()->spawn([TEST_CTX, &server, &serverDone]() -> Task<> {
+        co_await server.start([&serverDone](TcpConnectionPtr conn) -> Task<> {
+            char buf[64];
+            try
+            {
+                size_t n = co_await conn->read(buf, sizeof(buf));
+                NITRO_INFO("read returned %zu bytes", n);
+            }
+            catch (...)
+            {
+            }
+            serverDone.set_value();
+        });
+    });
+
+    co_await server.started();
+
+    auto conn = co_await TcpConnection::connect({ "127.0.0.1", port });
+    co_await conn->forceClose();
+
+    NITRO_CHECK(conn->state() == TcpConnection::State::Closed);
+
+    co_await serverDone.get_future().get();
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);

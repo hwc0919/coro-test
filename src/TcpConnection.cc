@@ -172,6 +172,8 @@ Task<> TcpConnection::forceClose()
     state_ = State::Closed;
     ioChannelPtr_->disableAll();
     ioChannelPtr_->cancelAll();
+    ioChannelPtr_.reset();
+    socket_.reset();
 }
 
 } // namespace nitrocoro::net
