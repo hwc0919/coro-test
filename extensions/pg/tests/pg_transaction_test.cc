@@ -25,7 +25,7 @@ NITRO_TEST(transaction_raii_rollback)
         auto tx = co_await pool.newTransaction();
         co_await tx->execute("INSERT INTO tx_raii_test VALUES (1)");
     }
-    co_await Scheduler::current()->sleep_for(1.0);
+    co_await Scheduler::current()->sleep_for(0.05);
     auto conn = co_await pool.acquire();
     auto result = co_await conn->query("SELECT COUNT(*) FROM tx_raii_test");
     NITRO_CHECK(std::get<int64_t>(result.get(0, 0)) == 0);
@@ -83,7 +83,7 @@ NITRO_TEST(transaction_pool_return)
         NITRO_CHECK_EQ(pool.idleCount(), 0);
         co_await tx->rollback();
     }
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
     NITRO_CHECK_EQ(pool.idleCount(), 1);
 }
 
@@ -152,7 +152,7 @@ NITRO_TEST(transaction_release_pooled_recycle)
         auto conn = tx->release();
         NITRO_CHECK_EQ(pool.idleCount(), 0); // conn still alive, not yet recycled
     } // conn destroyed here → recycled to pool
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
     NITRO_CHECK_EQ(pool.idleCount(), 1);
 }
 
@@ -166,7 +166,7 @@ NITRO_TEST(transaction_release_no_extra_rollback)
         [[maybe_unused]] auto conn = tx->release();
         // tx destroyed with done_=true → no rollback spawned
     }
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
     NITRO_CHECK_EQ(pool.idleCount(), 1);
 }
 
@@ -179,7 +179,7 @@ NITRO_TEST(transaction_auto_commit)
         tx->setAutoCommit(true);
         co_await tx->execute("INSERT INTO tx_autocommit_test VALUES (1)");
     } // destructor commits
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
     auto conn = co_await pool.acquire();
     auto result = co_await conn->query("SELECT COUNT(*) FROM tx_autocommit_test");
     NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 1);

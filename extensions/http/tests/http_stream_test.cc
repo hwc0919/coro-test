@@ -39,7 +39,7 @@ Task<> echo_server(uint16_t port)
 
 Task<> run_stream_test(uint16_t port, bool useChunk, nitrocoro::test::TestCtxPtr TEST_CTX)
 {
-    co_await sleep(100ms);
+    co_await sleep(10ms);
 
     HttpClient client;
     auto [req, respFuture] = co_await client.stream("POST", "http://127.0.0.1:" + std::to_string(port) + "/stream-echo");
@@ -76,7 +76,7 @@ Task<> run_stream_test(uint16_t port, bool useChunk, nitrocoro::test::TestCtxPtr
     while (pos < data.size())
     {
         size_t len = std::min(chunkSize, data.size() - pos);
-        co_await sleep(100ms);
+        co_await sleep(10ms);
         co_await req.write(data.substr(pos, len));
         reqChunks.push_back(data.substr(pos, len));
         pos += len;

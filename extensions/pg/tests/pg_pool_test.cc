@@ -34,7 +34,7 @@ NITRO_TEST(pool_reuse)
         auto result = co_await c1->query("SELECT 1");
         NITRO_CHECK_EQ(std::get<int64_t>(result.get(0, 0)), 1);
     }
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
     NITRO_CHECK_EQ(pool.idleCount(), 1);
 }
 
@@ -45,7 +45,7 @@ NITRO_TEST(pooled_connection_reset)
     NITRO_CHECK_EQ(pool.idleCount(), 0);
 
     conn.reset();
-    co_await Scheduler::current()->sleep_for(0.1);
+    co_await Scheduler::current()->sleep_for(0.05);
     NITRO_CHECK_EQ(pool.idleCount(), 1);
 }
 

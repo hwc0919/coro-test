@@ -356,7 +356,7 @@ NITRO_TEST(tls_multi_sni)
         });
     });
 
-    co_await Scheduler::current()->sleep_for(0.5);
+    co_await Scheduler::current()->sleep_for(0.05);
 
     auto connectAs = [](uint16_t port, const std::string & host) -> Task<TlsStreamPtr> {
         TlsPolicy cp;

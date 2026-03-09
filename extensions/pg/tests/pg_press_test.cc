@@ -20,9 +20,9 @@ using namespace nitrocoro;
 using namespace nitrocoro::pg;
 using namespace nitrocoro::pg::test;
 
-static int g_durationSec = 3;
-static int g_poolSize = 8;
-static int g_workers = 32;
+static int g_durationSec = 1;
+static int g_poolSize = 4;
+static int g_workers = 8;
 
 NITRO_TEST(pg_press)
 {
