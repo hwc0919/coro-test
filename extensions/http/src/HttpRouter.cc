@@ -60,8 +60,13 @@ void HttpRouter::insertRadix(RouteNode & node, std::string_view path, HttpHandle
     }
 }
 
-HttpHandlerPtr HttpRouter::matchRadix(const RouteNode & node, std::string_view path, Params & params)
+static constexpr size_t kMaxPathLength = 2048;
+static constexpr size_t kMaxPathSegments = 32;
+
+HttpHandlerPtr HttpRouter::matchRadix(const RouteNode & node, std::string_view path, Params & params, size_t depth)
 {
+    if (depth > kMaxPathSegments)
+        return nullptr;
     size_t pos = 0;
     const RouteNode * cur = &node;
 
@@ -75,20 +80,17 @@ HttpHandlerPtr HttpRouter::matchRadix(const RouteNode & node, std::string_view p
         auto it = cur->children.find(seg);
         if (it != cur->children.end())
         {
-            if (auto h = matchRadix(*it->second, path.substr(pos), params))
+            if (auto h = matchRadix(*it->second, path.substr(pos), params, depth + 1))
                 return h;
         }
 
         // 2. param
         if (cur->paramChild)
         {
-            Params branch = params;
-            branch[cur->paramName] = std::string(seg);
-            if (auto h = matchRadix(*cur->paramChild, path.substr(pos), branch))
-            {
-                params = std::move(branch);
+            params[cur->paramName] = std::string(seg);
+            if (auto h = matchRadix(*cur->paramChild, path.substr(pos), params, depth + 1))
                 return h;
-            }
+            params.erase(cur->paramName);
         }
 
         // 3. wildcard — consumes the rest
@@ -132,7 +134,7 @@ void HttpRouter::addRouteImpl(const std::string & method, const std::string & pa
 HttpRouter::RouteResult HttpRouter::route(const std::string & method, const std::string & path) const
 {
     auto it = routes_.find(method);
-    if (it == routes_.end())
+    if (it == routes_.end() || path.size() > kMaxPathLength)
         return {};
 
     const MethodRoutes & mr = it->second;

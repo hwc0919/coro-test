@@ -99,7 +99,7 @@ private:
     void addRouteImpl(const std::string & method, const std::string & path, HttpHandlerPtr handler);
 
     static void insertRadix(RouteNode & node, std::string_view path, HttpHandlerPtr handler);
-    static HttpHandlerPtr matchRadix(const RouteNode & node, std::string_view path, Params & params);
+    static HttpHandlerPtr matchRadix(const RouteNode & node, std::string_view path, Params & params, size_t depth = 0);
 
     std::unordered_map<std::string, MethodRoutes> routes_;
 };
