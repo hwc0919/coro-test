@@ -173,6 +173,45 @@ NITRO_TEST(router_empty_no_match)
     co_return;
 }
 
+// GET /api:v1 → colon not at segment start, must match as exact route
+NITRO_TEST(router_colon_not_at_segment_start)
+{
+    HttpRouter router;
+    router.addRoute("GET", "/api:v1", dummyHandler());
+
+    auto [h, p] = match(router, "GET", "/api:v1");
+    NITRO_CHECK(h != nullptr);
+    NITRO_CHECK(p.empty()); // exact match, no params
+    co_return;
+}
+
+// path exceeding 2048 bytes → rejected, no match
+NITRO_TEST(router_path_too_long)
+{
+    HttpRouter router;
+    router.addRoute("GET", "/*path", dummyHandler());
+
+    std::string longPath(2049, 'a');
+    longPath[0] = '/';
+    auto result = router.route("GET", longPath);
+    NITRO_CHECK(!result);
+    co_return;
+}
+
+// path with more than 32 segments → rejected, no match
+NITRO_TEST(router_too_many_segments)
+{
+    HttpRouter router;
+    router.addRoute("GET", "/*path", dummyHandler());
+
+    std::string deepPath;
+    for (int i = 0; i < 33; ++i)
+        deepPath += "/a";
+    auto result = router.route("GET", deepPath);
+    NITRO_CHECK(!result);
+    co_return;
+}
+
 // ── Priority: exact > param > wildcard ───────────────────────────────────────
 
 // GET /users/me → /users/me and /users/:id both registered, exact takes priority

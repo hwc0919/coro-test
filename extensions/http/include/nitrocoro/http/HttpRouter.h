@@ -57,6 +57,21 @@ namespace nitrocoro::http
  *    @endcode
  *
  * When no route matches, `route()` returns a `RouteResult` with a null handler.
+ *
+ * ## Security limits
+ * - Paths longer than 2048 bytes are rejected (prevents ReDoS on regex routes).
+ * - Radix tree matching is limited to 32 path segments (prevents CWE-674 stack overflow).
+ *
+ * ## Handler signatures
+ * Any callable returning `Task<>` is accepted. Supported parameter forms:
+ * @code
+ * // Full signature
+ * [](HttpIncomingStream<HttpRequest> req, HttpOutgoingStream<HttpResponse> resp, Params p) -> Task<> {}
+ * // Without params
+ * [](HttpIncomingStream<HttpRequest> req, HttpOutgoingStream<HttpResponse> resp) -> Task<> {}
+ * // Response only
+ * [](HttpOutgoingStream<HttpResponse> resp) -> Task<> {}
+ * @endcode
  */
 
 class HttpRouter
