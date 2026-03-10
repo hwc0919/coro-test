@@ -45,6 +45,10 @@ add_library(nitrocoro STATIC
     src/Dns.cc
     src/Url.cc
     src/Debug.cc
+    src/utils/Base64.cc
+    src/utils/UrlEncode.cc
+    src/utils/Sha1.cc
+    src/utils/Md5.cc
 )
 
 target_include_directories(nitrocoro PUBLIC

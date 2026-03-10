@@ -31,3 +31,7 @@ add_test(NAME timeout_test COMMAND timeout_test)
 add_executable(cancel_test cancel_test.cc)
 target_link_libraries(cancel_test PRIVATE nitrocoro)
 add_test(NAME cancel_test COMMAND cancel_test)
+
+add_executable(utils_test utils_test.cc)
+target_link_libraries(utils_test PRIVATE nitrocoro)
+add_test(NAME utils_test COMMAND utils_test)
