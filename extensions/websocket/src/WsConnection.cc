@@ -4,9 +4,21 @@
  */
 #include <nitrocoro/websocket/WsConnection.h>
 
-#include <array>
-#include <cstring>
 #include <stdexcept>
+#include <vector>
+
+namespace
+{
+enum class Opcode : uint8_t
+{
+    Continuation = 0x0,
+    Text = 0x1,
+    Binary = 0x2,
+    Close = 0x8,
+    Ping = 0x9,
+    Pong = 0xA,
+};
+} // namespace
 
 namespace nitrocoro::websocket
 {
@@ -30,8 +42,8 @@ static Task<size_t> readExact(io::Stream & s, void * buf, size_t len)
 
 Task<std::optional<WsMessage>> WsConnection::receive()
 {
-    std::vector<uint8_t> payload;
-    WsOpcode finalOpcode = WsOpcode::Continuation;
+    std::string payload;
+    Opcode finalOpcode = Opcode::Continuation;
 
     while (true)
     {
@@ -39,8 +51,8 @@ Task<std::optional<WsMessage>> WsConnection::receive()
         uint8_t header[2];
         co_await readExact(*stream_, header, 2);
 
-        bool fin    = (header[0] & 0x80) != 0;
-        auto opcode = static_cast<WsOpcode>(header[0] & 0x0F);
+        bool fin = (header[0] & 0x80) != 0;
+        Opcode opcode = static_cast<Opcode>(header[0] & 0x0F);
         bool masked = (header[1] & 0x80) != 0;
         uint64_t payloadLen = header[1] & 0x7F;
 
@@ -72,31 +84,34 @@ Task<std::optional<WsMessage>> WsConnection::receive()
                 payload[offset + i] ^= maskKey[i % 4];
 
         // Control frames (ping/pong/close) are never fragmented
-        if (opcode == WsOpcode::Ping)
+        if (opcode == Opcode::Ping)
         {
-            co_await sendFrame(WsOpcode::Pong, payload.data() + offset, payloadLen);
+            co_await sendFrame(static_cast<uint8_t>(Opcode::Pong), payload.data() + offset, payloadLen);
             payload.resize(offset);
             continue;
         }
-        if (opcode == WsOpcode::Close)
+        if (opcode == Opcode::Close)
             co_return std::nullopt;
 
-        if (opcode != WsOpcode::Continuation)
+        if (opcode != Opcode::Continuation)
             finalOpcode = opcode;
 
         if (fin)
-            co_return WsMessage{ finalOpcode, std::move(payload) };
+        {
+            WsMessageType type = (finalOpcode == Opcode::Binary) ? WsMessageType::Binary : WsMessageType::Text;
+            co_return WsMessage{ type, std::move(payload) };
+        }
     }
 }
 
 // ── send ─────────────────────────────────────────────────────────────────────
 
-Task<> WsConnection::sendFrame(WsOpcode opcode, const void * data, size_t len, bool mask)
+Task<> WsConnection::sendFrame(uint8_t opcode, const void * data, size_t len, bool mask)
 {
     std::vector<uint8_t> frame;
     frame.reserve(10 + len);
 
-    frame.push_back(0x80 | static_cast<uint8_t>(opcode)); // FIN + opcode
+    frame.push_back(0x80 | opcode); // FIN + opcode
 
     uint8_t maskBit = mask ? 0x80 : 0x00;
     if (len < 126)
@@ -122,20 +137,26 @@ Task<> WsConnection::sendFrame(WsOpcode opcode, const void * data, size_t len, b
     co_await stream_->write(frame.data(), frame.size());
 }
 
-Task<> WsConnection::sendText(std::string_view text)
+Task<> WsConnection::send(std::string_view data, WsMessageType type)
 {
-    co_await sendFrame(WsOpcode::Text, text.data(), text.size());
+    uint8_t op = static_cast<uint8_t>((type == WsMessageType::Binary) ? Opcode::Binary : Opcode::Text);
+    co_await sendFrame(op, data.data(), data.size());
 }
 
-Task<> WsConnection::sendBinary(std::vector<uint8_t> data)
+Task<> WsConnection::shutdown(CloseCode code, std::string_view reason)
 {
-    co_await sendFrame(WsOpcode::Binary, data.data(), data.size());
+    uint16_t c = static_cast<uint16_t>(code);
+    std::string payload(2 + reason.size(), '\0');
+    payload[0] = static_cast<uint8_t>(c >> 8);
+    payload[1] = static_cast<uint8_t>(c);
+    payload.replace(2, reason.size(), reason);
+    co_await sendFrame(static_cast<uint8_t>(Opcode::Close), payload.data(), payload.size());
 }
 
-Task<> WsConnection::close(uint16_t code)
+Task<> WsConnection::forceClose()
 {
-    uint8_t payload[2] = { static_cast<uint8_t>(code >> 8), static_cast<uint8_t>(code) };
-    co_await sendFrame(WsOpcode::Close, payload, 2);
+    co_await stream_->shutdown();
+    stream_.reset();
 }
 
 } // namespace nitrocoro::websocket

@@ -7,8 +7,8 @@
 #include <nitrocoro/testing/Test.h>
 #include <nitrocoro/websocket/WsServer.h>
 
-#include "nitrocoro/http/HttpClient.h"
-#include <array>
+#include <nitrocoro/http/HttpClient.h>
+
 #include <cstring>
 #include <string>
 
@@ -184,7 +184,7 @@ NITRO_TEST(ws_echo)
     WsServer ws;
     ws.route("/ws", [](WsConnection & conn) -> Task<> {
         while (auto msg = co_await conn.receive())
-            co_await conn.sendText(msg->text());
+            co_await conn.send(msg->payload);
     });
     ws.attachTo(server);
     co_await startServer(server);
@@ -226,7 +226,7 @@ NITRO_TEST(ws_http_coexist)
     });
     WsServer ws;
     ws.route("/ws", [](WsConnection & conn) -> Task<> {
-        co_await conn.close();
+        co_await conn.shutdown();
     });
     ws.attachTo(server);
     co_await startServer(server);
