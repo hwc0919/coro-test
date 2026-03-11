@@ -41,6 +41,7 @@ add_library(nitrocoro STATIC
     src/TcpConnection.cc
     src/Channel.cc
     src/InetAddress.cc
+    src/TaskQueue.cc
     src/DnsResolver.cc
     src/Dns.cc
     src/Url.cc

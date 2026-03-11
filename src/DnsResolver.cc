@@ -5,9 +5,6 @@
 #include <nitrocoro/net/DnsException.h>
 #include <nitrocoro/net/DnsResolver.h>
 
-#include <algorithm>
-#include <thread>
-
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -19,34 +16,143 @@
 namespace nitrocoro::net
 {
 
-DnsResolver::DnsResolver(size_t threadNum, std::chrono::seconds ttl)
-    : ttl_(ttl)
+using Addresses = std::vector<InetAddress>;
+using TimePoint = std::chrono::steady_clock::time_point;
+
+struct CacheEntry
 {
-    if (threadNum == 0)
+    Addresses addresses;
+    TimePoint expiry;
+};
+
+struct ExpiryEntry
+{
+    TimePoint expiry;
+    std::string key;
+    bool operator>(const ExpiryEntry & o) const { return expiry > o.expiry; }
+};
+
+struct DnsResolver::State
+{
+    std::mutex mutex;
+    std::chrono::seconds ttl{ std::chrono::seconds(300) };
+    std::atomic<uint32_t> writeCount{ 0 };
+    std::unordered_map<std::string, CacheEntry> cache;
+    std::unordered_map<std::string, std::vector<Promise<Addresses>>> pending;
+    std::priority_queue<ExpiryEntry, std::vector<ExpiryEntry>, std::greater<>> expiryQueue;
+};
+
+static void doResolve(const std::weak_ptr<DnsResolver::State> & weakState,
+                      const std::string & key,
+                      const std::string & hostname,
+                      const std::string & service,
+                      int family)
+{
+    std::exception_ptr ex;
+    std::vector<Promise<Addresses>> waiters;
+
+    struct addrinfo hints = {};
+    hints.ai_family = family;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo * res = nullptr;
+    int error = getaddrinfo(hostname.c_str(),
+                            service.empty() ? nullptr : service.c_str(),
+                            &hints,
+                            &res);
+
+    auto state = weakState.lock();
+    if (!state)
     {
-        threadNum = std::clamp(std::thread::hardware_concurrency(), 1u, 8u);
+        return;
     }
 
-    for (size_t i = 0; i < threadNum; ++i)
+    do
     {
-        workers_.emplace_back([this] { workerThread(); });
+        if (!res)
+        {
+            ex = std::make_exception_ptr(DnsException("no result", error));
+            break;
+        }
+        if (error != 0)
+        {
+            freeaddrinfo(res);
+#ifdef _WIN32
+            ex = std::make_exception_ptr(DnsException(gai_strerrorA(error), error));
+#else
+            ex = std::make_exception_ptr(DnsException(gai_strerror(error), error));
+#endif
+            break;
+        }
+
+        Addresses addresses;
+        for (struct addrinfo * p = res; p != nullptr; p = p->ai_next)
+        {
+            if (p->ai_family == AF_INET && p->ai_addr)
+                addresses.emplace_back(*reinterpret_cast<struct sockaddr_in *>(p->ai_addr));
+            else if (p->ai_family == AF_INET6 && p->ai_addr)
+                addresses.emplace_back(*reinterpret_cast<struct sockaddr_in6 *>(p->ai_addr));
+        }
+        freeaddrinfo(res);
+
+        if (addresses.empty())
+        {
+            ex = std::make_exception_ptr(DnsException("no usable addresses", 0));
+            break;
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        auto expiry = now + state->ttl;
+        {
+            std::lock_guard lock(state->mutex);
+            state->cache[key] = { addresses, expiry };
+            state->expiryQueue.push({ expiry, key });
+            auto pendingIt = state->pending.find(key);
+            if (pendingIt != state->pending.end())
+            {
+                waiters = std::move(pendingIt->second);
+                state->pending.erase(pendingIt);
+            }
+        }
+        if ((state->writeCount.fetch_add(1, std::memory_order_relaxed) & 15) == 0)
+        {
+            std::lock_guard lock(state->mutex);
+            while (!state->expiryQueue.empty() && state->expiryQueue.top().expiry <= now)
+            {
+                auto & top = state->expiryQueue.top();
+                auto cacheIt = state->cache.find(top.key);
+                if (cacheIt != state->cache.end() && cacheIt->second.expiry <= now)
+                    state->cache.erase(cacheIt);
+                state->expiryQueue.pop();
+            }
+        }
+        for (auto & p : waiters)
+            p.set_value(addresses);
+    } while (0);
+
+    if (ex)
+    {
+        {
+            std::lock_guard lock(state->mutex);
+            auto pendingIt = state->pending.find(key);
+            if (pendingIt != state->pending.end())
+            {
+                waiters = std::move(pendingIt->second);
+                state->pending.erase(pendingIt);
+            }
+        }
+        for (auto & p : waiters)
+            p.set_exception(ex);
     }
 }
 
-DnsResolver::~DnsResolver()
+DnsResolver::DnsResolver(std::chrono::seconds ttl, TaskQueueProvider newTaskQueue)
+    : taskQueue_(newTaskQueue()), state_(std::make_shared<State>())
 {
-    {
-        std::lock_guard lock(mutex_);
-        stop_ = true;
-    }
-    cv_.notify_all();
-
-    for (auto & worker : workers_)
-    {
-        if (worker.joinable())
-            worker.join();
-    }
+    state_->ttl = ttl;
 }
+
+DnsResolver::~DnsResolver() = default;
 
 std::string DnsResolver::cacheKey(const std::string & hostname, const std::string & service, int family)
 {
@@ -62,31 +168,34 @@ Task<DnsResolver::Addresses> DnsResolver::resolveImpl(const std::string & hostna
 
     Promise<Addresses> promise(scheduler);
     auto future = promise.get_future();
-    bool notify = false;
+    bool shouldDispatch = false;
     auto now = std::chrono::steady_clock::now();
 
     {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(state_->mutex);
 
-        auto cacheIt = cache_.find(key);
-        if (cacheIt != cache_.end() && now < cacheIt->second.expiry)
+        auto cacheIt = state_->cache.find(key);
+        if (cacheIt != state_->cache.end() && now < cacheIt->second.expiry)
         {
             promise.set_value(cacheIt->second.addresses);
         }
-        else if (auto pendingIt = pending_.find(key); pendingIt != pending_.end())
+        else if (auto pendingIt = state_->pending.find(key); pendingIt != state_->pending.end())
         {
             pendingIt->second.push_back(std::move(promise));
         }
         else
         {
-            pending_[key].push_back(std::move(promise));
-            tasks_.push({ key, hostname, service, family, {} });
-            notify = true;
+            state_->pending[key].push_back(std::move(promise));
+            shouldDispatch = true;
         }
     }
 
-    if (notify)
-        cv_.notify_one();
+    if (shouldDispatch)
+    {
+        taskQueue_->post([weakState = std::weak_ptr(state_), key, hostname, service, family] {
+            doResolve(weakState, key, hostname, service, family);
+        });
+    }
 
     co_return co_await future.get();
 }
@@ -103,124 +212,6 @@ Task<DnsResolver::Addresses> DnsResolver::resolve(const std::string & hostname,
                                                   Scheduler * scheduler)
 {
     co_return co_await resolveImpl(hostname, "", family, scheduler);
-}
-
-void DnsResolver::workerThread()
-{
-    while (true)
-    {
-        ResolveTask task{ "", "", "", AF_UNSPEC, {} };
-
-        {
-            std::unique_lock lock(mutex_);
-            cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
-
-            if (stop_)
-                return;
-
-            if (!tasks_.empty())
-            {
-                task = std::move(tasks_.front());
-                tasks_.pop();
-            }
-            else
-            {
-                continue;
-            }
-        }
-
-        std::exception_ptr ex;
-        std::vector<Promise<Addresses>> waiters;
-
-        struct addrinfo hints = {};
-        hints.ai_family = task.family;
-        hints.ai_socktype = SOCK_STREAM;
-
-        struct addrinfo * res = nullptr;
-        int error = getaddrinfo(task.hostname.c_str(),
-                                task.service.empty() ? nullptr : task.service.c_str(),
-                                &hints,
-                                &res);
-
-        do
-        {
-            if (!res)
-            {
-                ex = std::make_exception_ptr(DnsException("no result", error));
-                break;
-            }
-            if (error != 0)
-            {
-
-                freeaddrinfo(res);
-#ifdef _WIN32
-                ex = std::make_exception_ptr(DnsException(gai_strerrorA(error), error));
-#else
-                ex = std::make_exception_ptr(DnsException(gai_strerror(error), error));
-#endif
-                break;
-            }
-
-            Addresses addresses;
-            for (struct addrinfo * p = res; p != nullptr; p = p->ai_next)
-            {
-                if (p->ai_family == AF_INET && p->ai_addr)
-                    addresses.emplace_back(*reinterpret_cast<struct sockaddr_in *>(p->ai_addr));
-                else if (p->ai_family == AF_INET6 && p->ai_addr)
-                    addresses.emplace_back(*reinterpret_cast<struct sockaddr_in6 *>(p->ai_addr));
-            }
-            freeaddrinfo(res);
-
-            if (addresses.empty())
-            {
-                ex = std::make_exception_ptr(DnsException("no usable addresses", 0));
-                break;
-            }
-
-            auto now = std::chrono::steady_clock::now();
-            auto expiry = now + ttl_;
-            {
-                std::lock_guard lock(mutex_);
-                cache_[task.key] = { addresses, expiry };
-                expiryQueue_.push({ expiry, task.key });
-                auto pendingIt = pending_.find(task.key);
-                if (pendingIt != pending_.end())
-                {
-                    waiters = std::move(pendingIt->second);
-                    pending_.erase(pendingIt);
-                }
-            }
-            if ((writeCount_.fetch_add(1, std::memory_order_relaxed) & 15) == 0)
-            {
-                std::lock_guard lock(mutex_);
-                while (!expiryQueue_.empty() && expiryQueue_.top().expiry <= now)
-                {
-                    auto & top = expiryQueue_.top();
-                    auto cacheIt = cache_.find(top.key);
-                    if (cacheIt != cache_.end() && cacheIt->second.expiry <= now)
-                        cache_.erase(cacheIt);
-                    expiryQueue_.pop();
-                }
-            }
-            for (auto & p : waiters)
-                p.set_value(addresses);
-        } while (0);
-
-        if (ex)
-        {
-            {
-                std::lock_guard lock(mutex_);
-                auto pendingIt = pending_.find(task.key);
-                if (pendingIt != pending_.end())
-                {
-                    waiters = std::move(pendingIt->second);
-                    pending_.erase(pendingIt);
-                }
-            }
-            for (auto & p : waiters)
-                p.set_exception(ex);
-        }
-    }
 }
 
 } // namespace nitrocoro::net
