@@ -13,65 +13,87 @@ static bool isUnreserved(char c)
            || c == '-' || c == '_' || c == '.' || c == '~';
 }
 
-std::string formEncode(std::string_view input)
+static int hexVal(char c)
 {
-    std::string result;
-    result.reserve(input.size());
-    for (char c : input)
-    {
-        if (isUnreserved(c))
-            result += c;
-        else if (c == ' ')
-            result += '+';
-        else
-        {
-            result += '%';
-            result += kHex[c >> 4];
-            result += kHex[c & 0xf];
-        }
-    }
-    return result;
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    return -1;
 }
 
-std::string formDecode(std::string_view input)
+static void percentEncode(std::string & result, char c)
+{
+    auto uc = static_cast<unsigned char>(c);
+    result += '%';
+    result += kHex[uc >> 4];
+    result += kHex[uc & 0xf];
+}
+
+static std::string decodeImpl(std::string_view input, bool decodePlus, bool skipSlash)
 {
     std::string result;
     result.reserve(input.size());
     for (size_t i = 0; i < input.size(); ++i)
     {
-        if (input[i] == '+')
-            result += ' ';
-        else if (input[i] == '%' && i + 2 < input.size())
+        char c = input[i];
+        if (decodePlus && c == '+')
         {
-            auto hexVal = [](char c) -> int {
-                if (c >= '0' && c <= '9')
-                    return c - '0';
-                if (c >= 'A' && c <= 'F')
-                    return c - 'A' + 10;
-                if (c >= 'a' && c <= 'f')
-                    return c - 'a' + 10;
-                return -1;
-            };
-            int hi = hexVal(input[i + 1]);
-            int lo = hexVal(input[i + 2]);
-            if (hi >= 0 && lo >= 0)
+            result += ' ';
+        }
+        else if (c == '%')
+        {
+            if (i + 2 < input.size())
             {
-                result += (char)((hi << 4) | lo);
-                i += 2;
+                int hi = hexVal(input[i + 1]);
+                int lo = hexVal(input[i + 2]);
+                if (hi >= 0 && lo >= 0)
+                {
+                    char decoded = static_cast<char>((hi << 4) | lo);
+                    if (skipSlash && decoded == '/')
+                        result += "%2F";
+                    else
+                        result += decoded;
+                    i += 2;
+                    continue;
+                }
             }
-            else
-                result += input[i];
+            result += '%'; // invalid sequence, keep as-is
         }
         else
-            result += input[i];
+        {
+            result += c;
+        }
     }
     return result;
 }
 
-
-bool needsUrlDecoding(std::string_view input)
+std::string urlDecode(std::string_view input)
 {
-    return input.find('%') != std::string_view::npos;
+    return decodeImpl(input, false, true);
+}
+
+std::string urlDecodeComponent(std::string_view input)
+{
+    return decodeImpl(input, true, false);
+}
+
+std::string urlEncode(std::string_view input)
+{
+    std::string result;
+    result.reserve(input.size());
+    for (char c : input)
+    {
+        if (isUnreserved(c) || c == '/')
+            result += c;
+        else if (c == '+')
+            result += "%2B";
+        else
+            percentEncode(result, c);
+    }
+    return result;
 }
 
 std::string urlEncodeComponent(std::string_view input)
@@ -82,45 +104,28 @@ std::string urlEncodeComponent(std::string_view input)
     {
         if (isUnreserved(c))
             result += c;
+        else if (c == '+')
+            result += "%2B";
         else
-        {
-            result += '%';
-            result += kHex[c >> 4];
-            result += kHex[c & 0xf];
-        }
+            percentEncode(result, c);
     }
     return result;
 }
 
-std::string urlDecodeComponent(std::string_view input)
+std::string formEncode(std::string_view input)
 {
     std::string result;
     result.reserve(input.size());
-    for (size_t i = 0; i < input.size(); ++i)
+    for (char c : input)
     {
-        if (input[i] == '%' && i + 2 < input.size())
-        {
-            auto hexVal = [](char c) -> int {
-                if (c >= '0' && c <= '9')
-                    return c - '0';
-                if (c >= 'A' && c <= 'F')
-                    return c - 'A' + 10;
-                if (c >= 'a' && c <= 'f')
-                    return c - 'a' + 10;
-                return -1;
-            };
-            int hi = hexVal(input[i + 1]);
-            int lo = hexVal(input[i + 2]);
-            if (hi >= 0 && lo >= 0)
-            {
-                result += static_cast<char>((hi << 4) | lo);
-                i += 2;
-            }
-            else
-                result += input[i];
-        }
+        if (isUnreserved(c))
+            result += c;
+        else if (c == ' ')
+            result += '+';
+        else if (c == '+')
+            result += "%2B";
         else
-            result += input[i];
+            percentEncode(result, c);
     }
     return result;
 }

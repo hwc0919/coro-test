@@ -35,3 +35,7 @@ add_test(NAME cancel_test COMMAND cancel_test)
 add_executable(utils_test utils_test.cc)
 target_link_libraries(utils_test PRIVATE nitrocoro)
 add_test(NAME utils_test COMMAND utils_test)
+
+add_executable(url_test url_test.cc)
+target_link_libraries(url_test PRIVATE nitrocoro)
+add_test(NAME url_test COMMAND url_test)

@@ -189,6 +189,60 @@ NITRO_TEST(router_method_mismatch_404)
     co_await server.stop();
 }
 
+/** Path with percent-encoded characters is decoded before routing. */
+NITRO_TEST(http_path_percent_encoding)
+{
+    HttpServer server(0);
+    server.route("/hello world", { "GET" }, [](auto && req, auto && resp) -> Task<> {
+        co_await resp.end(req.path());
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get(
+        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/hello%20world");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "/hello world");
+
+    co_await server.stop();
+}
+
+/** Query value with %20 and + are both decoded to space. */
+NITRO_TEST(http_query_decode)
+{
+    HttpServer server(0);
+    server.route("/q", { "GET" }, [](auto && req, auto && resp) -> Task<> {
+        co_await resp.end(req.getQuery("a") + "|" + req.getQuery("b"));
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get(
+        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/q?a=hello%20world&b=hello+world");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "hello world|hello world");
+
+    co_await server.stop();
+}
+
+/** Path with invalid percent-encoded sequence is kept as-is. */
+NITRO_TEST(http_path_invalid_encoding)
+{
+    HttpServer server(0);
+    server.route("/foo%zz", { "GET" }, [](auto && req, auto && resp) -> Task<> {
+        co_await resp.end(req.path());
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get(
+        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/foo%zz");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "/foo%zz");
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);

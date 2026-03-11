@@ -138,15 +138,8 @@ void HttpParser<HttpRequest>::parseRequestLine(std::string_view line)
     size_t qpos = fullPath.find('?');
     std::string_view rawPath = fullPath.substr(0, qpos);
 
-    if (utils::needsUrlDecoding(rawPath))
-    {
-        data_.rawPath = rawPath;
-        data_.path = utils::urlDecodeComponent(rawPath);
-    }
-    else
-    {
-        data_.path = rawPath;
-    }
+    data_.rawPath = rawPath;
+    data_.path = utils::urlDecode(rawPath);
 
     if (qpos != std::string_view::npos)
     {
@@ -188,8 +181,8 @@ void HttpParser<HttpRequest>::parseQueryString(std::string_view queryStr)
         size_t eqPos = pair.find('=');
         if (eqPos != std::string_view::npos)
         {
-            std::string key = utils::formDecode(pair.substr(0, eqPos));
-            std::string value = utils::formDecode(pair.substr(eqPos + 1));
+            auto key = utils::urlDecodeComponent(pair.substr(0, eqPos));
+            auto value = utils::urlDecodeComponent(pair.substr(eqPos + 1));
             data_.queries.emplace(std::move(key), std::move(value));
         }
 
