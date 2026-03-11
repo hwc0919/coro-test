@@ -1,6 +1,6 @@
 # NitroCoro
 
-[中文](README_zh.md) | [English](README.md)
+[中文] | [English](README.md)
 
 基于 C++20 协程的**协程异步 I/O 运行时**，高性能、精巧设计的核心，通过官方扩展实现完整生态。
 
@@ -199,13 +199,14 @@ int main(int argc, char* argv[])
 
 ### HTTP/1.1（扩展，默认开启）
 
-| 功能       | 简介                            | 进度  |
-|----------|-------------------------------|-----|
-| HTTP 服务端 | 注册路由并启动 HTTP 服务，handler 为协程函数 | ✅   |
-| HTTP 路由  | 路径匹配，支持路径参数                   | ✅   |
-| 请求读取     | 流式读取请求 header、query 参数和 body  | ✅   |
-| 响应写入     | 流式写入响应状态、header 和 body        | ✅   |
-| HTTP 客户端 | 发起异步 HTTP/1.1 请求              | 🛠️ |
+| 功能       | 简介                                                  | 进度  |
+|----------|-----------------------------------------------------|-----|
+| HTTP 服务端 | 注册路由并启动 HTTP 服务，handler 为协程函数                       | ✅   |
+| HTTP 路由  | 精确匹配、路径参数（`:name`）、通配符（`*name`）、正则路由                | ✅   |
+| 请求读取     | 流式读取请求 header、query 参数和 body                        | ✅   |
+| 响应写入     | 流式写入响应状态、header 和 body                              | ✅   |
+| HTTP 客户端 | 简单 API（get/post/request）与流式 API，支持注入 StreamUpgrader | 🛠️ |
+| 更多       | Cookie、Session、超时等能力                                | 🛠️ |
 
 ### TLS（扩展，默认关闭）
 
@@ -226,19 +227,20 @@ int main(int argc, char* argv[])
 
 ### WebSocket（扩展，默认关闭）
 
-| 功能            | 简介                                          | 进度  |
-|---------------|---------------------------------------------|-----|
-| WebSocket 服务端 | 基于 HTTP upgrade 的 WebSocket 服务，注册消息 handler | 🛠️ |
-| WebSocket 连接  | 发送消息、关闭连接、接收消息回调                            | 🛠️ |
-| WebSocket 客户端 | 发起 WebSocket 连接，收发消息                        | 📋  |
+| 功能            | 简介                                          | 进度 |
+|---------------|---------------------------------------------|----|
+| WebSocket 服务端 | 基于 HTTP upgrade 的 WebSocket 服务，注册消息 handler | ✅  |
+| WebSocket 连接  | 发送消息、关闭连接、接收消息回调                            | ✅  |
+| WebSocket 客户端 | 发起 WebSocket 连接，收发消息                        | 📋 |
 
 ### PostgreSQL（扩展，默认关闭）
 
-| 功能   | 简介                              | 进度 |
-|------|---------------------------------|----|
-| 异步查询 | 协程式执行 SQL 查询，不阻塞线程              | ✅  |
-| 连接池  | 自动管理连接复用与归还                     | ✅  |
-| 事务   | 协程式事务 begin / commit / rollback | ✅  |
+| 功能   | 简介                               | 进度 |
+|------|----------------------------------|----|
+| 异步查询 | 协程式执行 SQL 查询，不阻塞线程               | ✅  |
+| 连接池  | 自动管理连接复用与归还                      | ✅  |
+| 事务   | 协程式事务 begin / commit / rollback  | ✅  |
+| 通知   | 支持 PostgreSQL 的 Listen/Notify 机制 | 📋 |
 
 ### MySQL（外部扩展 [nitrocoro-mysql](https://github.com/nitrocoro/nitrocoro-mysql)）
 

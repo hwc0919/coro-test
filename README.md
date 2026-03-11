@@ -1,6 +1,6 @@
 # NitroCoro
 
-[中文](README_zh.md) | [English](README.md)
+[中文](README_zh.md) | [English]
 
 A **coroutine async I/O runtime** built on C++20 coroutines, with a high-performance, elegantly designed core and a
 full-stack ecosystem via official extensions.
@@ -202,13 +202,14 @@ int main(int argc, char* argv[])
 
 ### HTTP/1.1 (extension, default ON)
 
-| Feature          | Description                                                     | Status |
-|------------------|-----------------------------------------------------------------|--------|
-| HTTP Server      | Register routes and start HTTP service, handlers are coroutines | ✅      |
-| HTTP Router      | Path matching with path parameters                              | ✅      |
-| Request reading  | Streaming read of headers, query params, and body               | ✅      |
-| Response writing | Streaming write of status, headers, and body                    | ✅      |
-| HTTP Client      | Async HTTP/1.1 client                                           | 🛠️    |
+| Feature          | Description                                                                        | Status |
+|------------------|------------------------------------------------------------------------------------|--------|
+| HTTP Server      | Register routes and start HTTP service, handlers are coroutines                    | ✅      |
+| HTTP Router      | Exact match, path parameters (`:name`), wildcard (`*name`), regex routes           | ✅      |
+| Request reading  | Streaming read of headers, query params, and body                                  | ✅      |
+| Response writing | Streaming write of status, headers, and body                                       | ✅      |
+| HTTP Client      | Simple API (get/post/request) and streaming API, supports injecting StreamUpgrader | 🛠️    |
+| More             | Cookie, Session, timeout, etc.                                                     | 🛠️    |
 
 ### TLS (extension, default OFF)
 
@@ -231,8 +232,8 @@ int main(int argc, char* argv[])
 
 | Feature              | Description                                                   | Status |
 |----------------------|---------------------------------------------------------------|--------|
-| WebSocket Server     | WebSocket service via HTTP upgrade, register message handlers | 🛠️    |
-| WebSocket Connection | Send messages, close connection, receive message callbacks    | 🛠️    |
+| WebSocket Server     | WebSocket service via HTTP upgrade, register message handlers | ✅      |
+| WebSocket Connection | Send messages, close connection, receive message callbacks    | ✅      |
 | WebSocket Client     | Initiate WebSocket connection, send and receive messages      | 📋     |
 
 ### PostgreSQL (extension, default OFF)
@@ -242,6 +243,7 @@ int main(int argc, char* argv[])
 | Async query     | Coroutine-based SQL execution, non-blocking | ✅      |
 | Connection pool | Automatic connection reuse and return       | ✅      |
 | Transaction     | Coroutine-based begin / commit / rollback   | ✅      |
+| Notification    | PostgreSQL Listen/Notify mechanism          | 📋     |
 
 ### MySQL (external: [nitrocoro-mysql](https://github.com/nitrocoro/nitrocoro-mysql))
 
