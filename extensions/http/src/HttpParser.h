@@ -4,11 +4,40 @@
  */
 #pragma once
 #include <nitrocoro/http/HttpMessage.h>
+
 #include <string>
 #include <string_view>
 
 namespace nitrocoro::http
 {
+
+enum class HttpParseError
+{
+    None,
+    ConnectionClosed,
+    MalformedRequestLine,
+    MissingHostHeader,
+    AmbiguousContentLength,
+    UnsupportedTransferEncoding
+};
+
+template <typename T>
+struct HttpParseResult
+{
+    T message;
+    HttpParseError errorCode = HttpParseError::None;
+    std::string errorMessage;
+
+    bool error() const { return errorCode != HttpParseError::None; }
+};
+
+enum class HttpParserState
+{
+    ExpectStatusLine,
+    ExpectHeader,
+    HeaderComplete,
+    Error
+};
 
 template <typename DataType>
 class HttpParser;
@@ -21,31 +50,30 @@ template <>
 class HttpParser<HttpRequest>
 {
 public:
+    using Result = HttpParseResult<HttpRequest>;
+    using State = HttpParserState;
     HttpParser() = default;
 
-    bool parseLine(std::string_view line);
-
-    bool isHeaderComplete() const { return state_ == State::Complete; }
-    HttpRequest && extractMessage() { return std::move(data_); }
+    HttpParserState parseLine(std::string_view line);
+    HttpParserState state() const { return state_; }
+    HttpParseError errorCode() const { return errorCode_; }
+    const std::string & errorMessage() const { return errorMessage_; }
+    HttpParseResult<HttpRequest> extractResult();
 
 private:
-    enum class State
-    {
-        ExpectStatusLine,
-        ExpectHeader,
-        Complete
-    };
-
     HttpRequest data_;
-    State state_ = State::ExpectStatusLine;
+    HttpParserState state_ = HttpParserState::ExpectStatusLine;
+    HttpParseError errorCode_ = HttpParseError::None;
+    std::string errorMessage_;
 
-    void parseRequestLine(std::string_view line);
+    void setError(HttpParseError code, std::string message);
+    bool parseRequestLine(std::string_view line);
     void parseHeader(std::string_view line);
     void parseQueryString(std::string_view queryStr);
     void parseCookies(const std::string & cookieHeader);
-    void processHeaders();
-    void processTransferMode();
-    void processKeepAlive();
+    bool processHeaders();
+    bool processTransferMode();
+    bool processKeepAlive();
 };
 
 // ============================================================================
@@ -56,30 +84,29 @@ template <>
 class HttpParser<HttpResponse>
 {
 public:
+    using Result = HttpParseResult<HttpResponse>;
+    using State = HttpParserState;
     HttpParser() = default;
 
-    bool parseLine(std::string_view line);
-
-    bool isHeaderComplete() const { return state_ == State::Complete; }
-    HttpResponse && extractMessage() { return std::move(data_); }
+    HttpParserState parseLine(std::string_view line);
+    HttpParserState state() const { return state_; }
+    HttpParseError errorCode() const { return errorCode_; }
+    const std::string & errorMessage() const { return errorMessage_; }
+    HttpParseResult<HttpResponse> extractResult();
 
 private:
-    enum class State
-    {
-        ExpectStatusLine,
-        ExpectHeader,
-        Complete
-    };
-
     HttpResponse data_;
-    State state_ = State::ExpectStatusLine;
+    HttpParserState state_ = HttpParserState::ExpectStatusLine;
+    HttpParseError errorCode_ = HttpParseError::None;
+    std::string errorMessage_;
 
-    void parseStatusLine(std::string_view line);
+    void setError(HttpParseError code, std::string message);
+    bool parseStatusLine(std::string_view line);
     void parseHeader(std::string_view line);
     void parseCookies(const std::string & cookieHeader);
-    void processHeaders();
-    void processTransferMode();
-    void processConnectionClose();
+    bool processHeaders();
+    bool processTransferMode();
+    bool processConnectionClose();
 };
 
 } // namespace nitrocoro::http

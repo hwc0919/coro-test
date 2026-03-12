@@ -8,10 +8,16 @@
 #include <nitrocoro/utils/UrlEncode.h>
 
 #include <optional>
-#include <stdexcept>
 
 namespace nitrocoro::http
 {
+
+void HttpParser<HttpRequest>::setError(HttpParseError code, std::string message)
+{
+    errorCode_ = code;
+    errorMessage_ = std::move(message);
+    state_ = HttpParserState::Error;
+}
 
 static Version parseHttpVersion(std::string_view versionStr)
 {
@@ -50,12 +56,20 @@ static std::optional<HttpHeader> parseHeaderLine(std::string_view line)
 // HttpParser<HttpRequest> Implementation
 // ============================================================================
 
-bool HttpParser<HttpRequest>::parseLine(std::string_view line)
+void HttpParser<HttpResponse>::setError(HttpParseError code, std::string message)
 {
-    if (state_ == State::ExpectStatusLine)
+    errorCode_ = code;
+    errorMessage_ = std::move(message);
+    state_ = HttpParserState::Error;
+}
+
+HttpParserState HttpParser<HttpRequest>::parseLine(std::string_view line)
+{
+    if (state_ == HttpParserState::ExpectStatusLine)
     {
-        parseRequestLine(line);
-        state_ = State::ExpectHeader;
+        if (!parseRequestLine(line))
+            return HttpParserState::Error;
+        state_ = HttpParserState::ExpectHeader;
     }
     else if (!line.empty())
     {
@@ -63,19 +77,19 @@ bool HttpParser<HttpRequest>::parseLine(std::string_view line)
     }
     else
     {
-        processHeaders();
-        state_ = State::Complete;
+        if (!processHeaders())
+            return HttpParserState::Error;
+        state_ = HttpParserState::HeaderComplete;
     }
-    return state_ == State::Complete;
+    return state_;
 }
 
-void HttpParser<HttpRequest>::processHeaders()
+bool HttpParser<HttpRequest>::processHeaders()
 {
-    processTransferMode();
-    processKeepAlive();
+    return processTransferMode() && processKeepAlive();
 }
 
-void HttpParser<HttpRequest>::processTransferMode()
+bool HttpParser<HttpRequest>::processTransferMode()
 {
     // RFC 7230 Section 3.3.3: Message body length determination
     // 1. Check Transfer-Encoding first (takes precedence over Content-Length)
@@ -87,11 +101,12 @@ void HttpParser<HttpRequest>::processTransferMode()
         if (value == "chunked")
         {
             data_.transferMode = TransferMode::Chunked;
-            return;
+            return true;
         }
         if (value != "identity")
         {
-            throw std::runtime_error("Unsupported Transfer-Encoding: " + std::string(value));
+            setError(HttpParseError::UnsupportedTransferEncoding, "Unsupported Transfer-Encoding: " + std::string(value));
+            return false;
         }
         // "identity" means no encoding, continue to check Content-Length
     }
@@ -109,9 +124,10 @@ void HttpParser<HttpRequest>::processTransferMode()
         data_.contentLength = 0;
         data_.transferMode = TransferMode::ContentLength;
     }
+    return true;
 }
 
-void HttpParser<HttpRequest>::processKeepAlive()
+bool HttpParser<HttpRequest>::processKeepAlive()
 {
     auto it = data_.headers.find(HttpHeader::Name::Connection_L);
     if (it != data_.headers.end())
@@ -124,12 +140,23 @@ void HttpParser<HttpRequest>::processKeepAlive()
         // Default: HTTP/1.1 keep-alive, HTTP/1.0 close
         data_.keepAlive = (data_.version == Version::kHttp11);
     }
+    return true;
 }
 
-void HttpParser<HttpRequest>::parseRequestLine(std::string_view line)
+bool HttpParser<HttpRequest>::parseRequestLine(std::string_view line)
 {
     size_t pos1 = line.find(' ');
+    if (pos1 == std::string_view::npos)
+    {
+        setError(HttpParseError::MalformedRequestLine, "Missing space in request line");
+        return false;
+    }
     size_t pos2 = line.find(' ', pos1 + 1);
+    if (pos2 == std::string_view::npos)
+    {
+        setError(HttpParseError::MalformedRequestLine, "Missing second space in request line");
+        return false;
+    }
 
     data_.method = HttpMethod::fromString(line.substr(0, pos1));
     data_.version = parseHttpVersion(line.substr(pos2 + 1));
@@ -150,6 +177,7 @@ void HttpParser<HttpRequest>::parseRequestLine(std::string_view line)
     {
         data_.query.clear();
     }
+    return true;
 }
 
 void HttpParser<HttpRequest>::parseHeader(std::string_view line)
@@ -218,16 +246,22 @@ void HttpParser<HttpRequest>::parseCookies(const std::string & cookieHeader)
     }
 }
 
+HttpParseResult<HttpRequest> HttpParser<HttpRequest>::extractResult()
+{
+    return { std::move(data_), errorCode_, errorMessage_ };
+}
+
 // ============================================================================
 // HttpParser<HttpResponse> Implementation
 // ============================================================================
 
-bool HttpParser<HttpResponse>::parseLine(std::string_view line)
+HttpParserState HttpParser<HttpResponse>::parseLine(std::string_view line)
 {
-    if (state_ == State::ExpectStatusLine)
+    if (state_ == HttpParserState::ExpectStatusLine)
     {
-        parseStatusLine(line);
-        state_ = State::ExpectHeader;
+        if (!parseStatusLine(line))
+            return HttpParserState::Error;
+        state_ = HttpParserState::ExpectHeader;
     }
     else if (!line.empty())
     {
@@ -235,19 +269,19 @@ bool HttpParser<HttpResponse>::parseLine(std::string_view line)
     }
     else
     {
-        processHeaders();
-        state_ = State::Complete;
+        if (!processHeaders())
+            return HttpParserState::Error;
+        state_ = HttpParserState::HeaderComplete;
     }
-    return state_ == State::Complete;
+    return state_;
 }
 
-void HttpParser<HttpResponse>::processHeaders()
+bool HttpParser<HttpResponse>::processHeaders()
 {
-    processTransferMode();
-    processConnectionClose();
+    return processTransferMode() && processConnectionClose();
 }
 
-void HttpParser<HttpResponse>::processTransferMode()
+bool HttpParser<HttpResponse>::processTransferMode()
 {
     // RFC 7230 Section 3.3.3: Message body length determination
     // 1. Check Transfer-Encoding first (takes precedence over Content-Length)
@@ -259,11 +293,12 @@ void HttpParser<HttpResponse>::processTransferMode()
         if (value == "chunked")
         {
             data_.transferMode = TransferMode::Chunked;
-            return;
+            return true;
         }
         if (value != "identity")
         {
-            throw std::runtime_error("Unsupported Transfer-Encoding: " + std::string(value));
+            setError(HttpParseError::UnsupportedTransferEncoding, "Unsupported Transfer-Encoding: " + std::string(value));
+            return false;
         }
         // "identity" means no encoding, continue to check Content-Length
     }
@@ -280,9 +315,10 @@ void HttpParser<HttpResponse>::processTransferMode()
         // 3. For responses without Transfer-Encoding or Content-Length, read until connection close
         data_.transferMode = TransferMode::UntilClose;
     }
+    return true;
 }
 
-void HttpParser<HttpResponse>::processConnectionClose()
+bool HttpParser<HttpResponse>::processConnectionClose()
 {
     auto it = data_.headers.find(HttpHeader::Name::Connection_L);
     if (it != data_.headers.end())
@@ -295,9 +331,10 @@ void HttpParser<HttpResponse>::processConnectionClose()
         // Default: HTTP/1.1 keep-alive (shouldClose=false), HTTP/1.0 close (shouldClose=true)
         data_.shouldClose = (data_.version == Version::kHttp10);
     }
+    return true;
 }
 
-void HttpParser<HttpResponse>::parseStatusLine(std::string_view line)
+bool HttpParser<HttpResponse>::parseStatusLine(std::string_view line)
 {
     size_t sp1 = line.find(' ');
     size_t sp2 = line.find(' ', sp1 + 1);
@@ -305,6 +342,7 @@ void HttpParser<HttpResponse>::parseStatusLine(std::string_view line)
     data_.version = parseHttpVersion(line.substr(0, sp1));
     data_.statusCode = parseStatusCode(std::stoi(std::string(line.substr(sp1 + 1, sp2 - sp1 - 1))));
     data_.statusReason = line.substr(sp2 + 1);
+    return true;
 }
 
 void HttpParser<HttpResponse>::parseHeader(std::string_view line)
@@ -335,6 +373,11 @@ void HttpParser<HttpResponse>::parseCookies(const std::string & cookieHeader)
                                 : cookieHeader.substr(eqPos + 1);
         data_.cookies.insert_or_assign(std::move(name), std::move(value));
     }
+}
+
+HttpParseResult<HttpResponse> HttpParser<HttpResponse>::extractResult()
+{
+    return { std::move(data_), errorCode_, errorMessage_ };
 }
 
 } // namespace nitrocoro::http

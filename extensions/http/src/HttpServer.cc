@@ -4,7 +4,6 @@
  */
 #include <nitrocoro/http/HttpServer.h>
 
-#include "HttpContext.h"
 #include <nitrocoro/core/Future.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
@@ -12,8 +11,40 @@
 #include <nitrocoro/io/Stream.h>
 #include <nitrocoro/utils/Debug.h>
 
+#include "HttpParser.h"
+
 namespace nitrocoro::http
 {
+
+static Task<HttpParseResult<HttpRequest>> parseNext(io::StreamPtr stream, std::shared_ptr<utils::StringBuffer> buffer)
+{
+    HttpParser<HttpRequest> parser;
+
+    while (true)
+    {
+        size_t pos = buffer->find("\r\n");
+        if (pos == std::string::npos)
+        {
+            char * writePtr = buffer->prepareWrite(4096);
+            size_t n = co_await stream->read(writePtr, 4096);
+            if (n == 0)
+                co_return { {}, HttpParseError::ConnectionClosed, "Connection closed before headers complete" };
+            buffer->commitWrite(n);
+            continue;
+        }
+
+        std::string_view line = buffer->view().substr(0, pos);
+        auto state = parser.parseLine(line);
+        buffer->consume(pos + 2);
+
+        if (state == HttpParserState::Error)
+            co_return parser.extractResult();
+        if (state == HttpParserState::HeaderComplete)
+            break;
+    }
+
+    co_return parser.extractResult();
+}
 
 HttpServer::HttpServer(uint16_t port, Scheduler * scheduler)
     : HttpServer(port, std::make_shared<HttpRouter>(), scheduler)
@@ -91,19 +122,28 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
     }
 
     auto buffer = std::make_shared<utils::StringBuffer>();
-    HttpContext<HttpRequest> context(stream, buffer);
     std::optional<Future<>> prevFuture;
     while (true)
     {
-        auto message = co_await context.receiveMessage();
-        if (!message)
-            co_return; // shutdown?
-        bool keepAlive = message->keepAlive;
+        auto parsed = co_await parseNext(stream, buffer);
+        if (parsed.error())
+        {
+            NITRO_DEBUG("Bad request: %s", parsed.errorMessage.c_str());
+            Promise<> p(scheduler_);
+            HttpOutgoingStream<HttpResponse> errResp(stream, std::move(p), std::move(prevFuture));
+            errResp.setStatus(StatusCode::k400BadRequest);
+            errResp.setCloseConnection(true);
+            co_await errResp.end("Bad Request");
+            co_await stream->shutdown();
+            co_return;
+        }
 
-        // TODO: BodyReader should read regardless of the request border or user desired length!!!
-        auto bodyReader = BodyReader::create(stream, buffer, message->transferMode, message->contentLength);
+        bool keepAlive = parsed.message.keepAlive;
+        auto transferMode = parsed.message.transferMode;
+        auto contentLength = parsed.message.contentLength;
 
-        auto request = HttpIncomingStream<HttpRequest>(std::move(*message), bodyReader);
+        auto bodyReader = BodyReader::create(stream, buffer, transferMode, contentLength);
+        auto request = HttpIncomingStream<HttpRequest>(std::move(parsed.message), bodyReader);
         Promise<> finishedPromise(scheduler_);
         auto finishedFuture = finishedPromise.get_future();
         HttpOutgoingStream<HttpResponse> response(stream, std::move(finishedPromise), std::move(prevFuture));

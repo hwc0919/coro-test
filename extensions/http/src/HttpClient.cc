@@ -4,7 +4,6 @@
  */
 #include <nitrocoro/http/HttpClient.h>
 
-#include "HttpContext.h"
 #include <nitrocoro/core/Future.h>
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/http/HttpMessage.h>
@@ -12,10 +11,41 @@
 #include <nitrocoro/net/Dns.h>
 #include <nitrocoro/net/Url.h>
 
+#include "HttpParser.h"
 #include <stdexcept>
 
 namespace nitrocoro::http
 {
+
+static Task<HttpParseResult<HttpResponse>> parseNext(io::StreamPtr stream, std::shared_ptr<utils::StringBuffer> buffer)
+{
+    HttpParser<HttpResponse> parser;
+
+    while (true)
+    {
+        size_t pos = buffer->find("\r\n");
+        if (pos == std::string::npos)
+        {
+            char * writePtr = buffer->prepareWrite(4096);
+            size_t n = co_await stream->read(writePtr, 4096);
+            if (n == 0)
+                co_return { {}, HttpParseError::ConnectionClosed, "Connection closed before headers complete" };
+            buffer->commitWrite(n);
+            continue;
+        }
+
+        std::string_view line = buffer->view().substr(0, pos);
+        auto state = parser.parseLine(line);
+        buffer->consume(pos + 2);
+
+        if (state == HttpParserState::Error)
+            co_return parser.extractResult();
+        if (state == HttpParserState::HeaderComplete)
+            break;
+    }
+
+    co_return parser.extractResult();
+}
 
 void HttpClient::setStreamUpgrader(StreamUpgrader upgrader)
 {
@@ -93,14 +123,15 @@ Task<HttpCompleteResponse> HttpClient::sendRequest(const std::string & method, c
 Task<HttpCompleteResponse> HttpClient::readResponse(io::StreamPtr stream)
 {
     auto buffer = std::make_shared<utils::StringBuffer>();
-    HttpContext<HttpResponse> context(stream, buffer);
-    auto message = co_await context.receiveMessage();
-    if (!message)
-        throw std::runtime_error("Connection closed before response complete");
+    auto result = co_await parseNext(stream, buffer);
+    if (result.error())
+        throw std::runtime_error(result.errorMessage);
 
+    auto transferMode = result.message.transferMode;
+    auto contentLength = result.message.contentLength;
     auto incomingStream = HttpIncomingStream<HttpResponse>(
-        std::move(*message),
-        BodyReader::create(stream, buffer, message->transferMode, message->contentLength));
+        std::move(result.message),
+        BodyReader::create(stream, buffer, transferMode, contentLength));
     co_return co_await incomingStream.toCompleteResponse();
 }
 
@@ -145,17 +176,18 @@ Task<HttpClientSession> HttpClient::stream(const std::string & method, const std
         try
         {
             auto buffer = std::make_shared<utils::StringBuffer>();
-            HttpContext<HttpResponse> context(anyStream, buffer);
-            auto message = co_await context.receiveMessage();
-            if (!message)
+            auto result = co_await parseNext(anyStream, buffer);
+            if (result.error())
             {
-                promise.set_exception(std::make_exception_ptr(std::runtime_error("Connection closed before response complete")));
+                promise.set_exception(std::make_exception_ptr(std::runtime_error(result.errorMessage)));
                 co_return;
             }
 
+            auto transferMode = result.message.transferMode;
+            auto contentLength = result.message.contentLength;
             auto response = HttpIncomingStream<HttpResponse>(
-                std::move(*message),
-                BodyReader::create(anyStream, buffer, message->transferMode, message->contentLength));
+                std::move(result.message),
+                BodyReader::create(anyStream, buffer, transferMode, contentLength));
             promise.set_value(std::move(response));
         }
         catch (...)

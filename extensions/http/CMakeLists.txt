@@ -3,7 +3,6 @@ add_library(nitrocoro-http STATIC
     src/BodyWriter.cc
     src/HttpClient.cc
     src/HttpMethod.cc
-    src/HttpContext.cc
     src/HttpRouter.cc
     src/HttpHeader.cc
     src/HttpIncomingStream.cc
