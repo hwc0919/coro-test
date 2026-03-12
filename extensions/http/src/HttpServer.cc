@@ -197,6 +197,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             if (result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed)
             {
                 response.setStatus(StatusCode::k405MethodNotAllowed);
+                response.setHeader(HttpHeader::NameCode::Allow, result.allowedMethods);
                 co_await response.end("Method Not Allowed");
             }
             else

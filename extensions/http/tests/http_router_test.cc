@@ -394,6 +394,97 @@ NITRO_TEST(router_invalid_method_throws)
     co_return;
 }
 
+// ── allowedMethods field ─────────────────────────────────────────────────────
+
+// exact route 405: allowedMethods contains the registered method
+NITRO_TEST(router_allowed_methods_exact)
+{
+    HttpRouter router;
+    router.addRoute("/data", { "POST" }, dummyHandler());
+
+    auto result = match(router, methods::Get, "/data");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("POST") != std::string::npos);
+    co_return;
+}
+
+// exact route 405: multi-method registration, allowedMethods contains all
+NITRO_TEST(router_allowed_methods_exact_multi)
+{
+    HttpRouter router;
+    router.addRoute("/data", { "GET", "POST" }, dummyHandler());
+
+    auto result = match(router, methods::Delete, "/data");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    NITRO_CHECK(result.allowedMethods.find("POST") != std::string::npos);
+    co_return;
+}
+
+// exact route: two separate addRoute calls, allowedMethods merges both
+NITRO_TEST(router_allowed_methods_exact_merged)
+{
+    HttpRouter router;
+    router.addRoute("/data", { "GET" }, dummyHandler());
+    router.addRoute("/data", { "POST" }, dummyHandler());
+
+    auto result = match(router, methods::Delete, "/data");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    NITRO_CHECK(result.allowedMethods.find("POST") != std::string::npos);
+    co_return;
+}
+
+// param route 405: allowedMethods contains the registered method
+NITRO_TEST(router_allowed_methods_param)
+{
+    HttpRouter router;
+    router.addRoute("/users/:id", { "GET" }, dummyHandler());
+
+    auto result = match(router, methods::Delete, "/users/42");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    co_return;
+}
+
+// wildcard route 405: allowedMethods contains the registered method
+NITRO_TEST(router_allowed_methods_wildcard)
+{
+    HttpRouter router;
+    router.addRoute("/files/*path", { "GET" }, dummyHandler());
+
+    auto result = match(router, methods::Post, "/files/a/b.txt");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    co_return;
+}
+
+// regex route 405: allowedMethods contains the registered method
+NITRO_TEST(router_allowed_methods_regex)
+{
+    HttpRouter router;
+    router.addRouteRegex(R"(/items/(\d+))", { "GET" }, dummyHandler());
+
+    auto result = match(router, methods::Post, "/items/123");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    co_return;
+}
+
+// regex route: two separate addRouteRegex calls, allowedMethods merges both
+NITRO_TEST(router_allowed_methods_regex_merged)
+{
+    HttpRouter router;
+    router.addRouteRegex(R"(/items/(\d+))", { "GET" }, dummyHandler());
+    router.addRouteRegex(R"(/items/(\d+))", { "POST" }, dummyHandler());
+
+    auto result = match(router, methods::Delete, "/items/1");
+    NITRO_CHECK(result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed);
+    NITRO_CHECK(result.allowedMethods.find("GET") != std::string::npos);
+    NITRO_CHECK(result.allowedMethods.find("POST") != std::string::npos);
+    co_return;
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
