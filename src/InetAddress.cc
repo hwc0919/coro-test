@@ -78,7 +78,7 @@ std::string InetAddress::toIp() const
     {
         inet_ntop(AF_INET6, &addr6_.sin6_addr, buf, sizeof(buf));
     }
-    return buf;
+    return { buf };
 }
 
 std::string InetAddress::toIpPort() const

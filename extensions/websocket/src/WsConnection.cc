@@ -139,16 +139,16 @@ Task<> WsConnection::sendFrame(uint8_t opcode, const void * data, size_t len, bo
 
 Task<> WsConnection::send(std::string_view data, WsMessageType type)
 {
-    uint8_t op = static_cast<uint8_t>((type == WsMessageType::Binary) ? Opcode::Binary : Opcode::Text);
-    co_await sendFrame(op, data.data(), data.size());
+    Opcode op = (type == WsMessageType::Binary) ? Opcode::Binary : Opcode::Text;
+    co_await sendFrame(static_cast<uint8_t>(op), data.data(), data.size());
 }
 
 Task<> WsConnection::shutdown(CloseCode code, std::string_view reason)
 {
     uint16_t c = static_cast<uint16_t>(code);
     std::string payload(2 + reason.size(), '\0');
-    payload[0] = static_cast<uint8_t>(c >> 8);
-    payload[1] = static_cast<uint8_t>(c);
+    payload[0] = static_cast<char>(c >> 8);
+    payload[1] = static_cast<char>(c);
     payload.replace(2, reason.size(), reason);
     co_await sendFrame(static_cast<uint8_t>(Opcode::Close), payload.data(), payload.size());
 }

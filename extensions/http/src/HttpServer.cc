@@ -162,10 +162,12 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
 
         auto bodyReader = BodyReader::create(stream, buffer, transferMode, contentLength);
         auto request = HttpIncomingStream<HttpRequest>(std::move(parsed.message), bodyReader);
+
         auto method = request.method();
         Promise<> finishedPromise(scheduler_);
         auto finishedFuture = finishedPromise.get_future();
-        HttpOutgoingStream<HttpResponse> response(stream, std::move(finishedPromise), std::move(prevFuture), method == methods::Head);
+        bool ignoreBody = (method == methods::Head);
+        HttpOutgoingStream<HttpResponse> response(stream, std::move(finishedPromise), std::move(prevFuture), ignoreBody);
         prevFuture = std::move(finishedFuture);
         response.setCloseConnection(!keepAlive);
 
