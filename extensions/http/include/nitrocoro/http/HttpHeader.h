@@ -47,6 +47,8 @@ public:
         static constexpr std::string_view Referer_C = "Referer";
         static constexpr std::string_view UserAgent_L = "user-agent";
         static constexpr std::string_view UserAgent_C = "User-Agent";
+        static constexpr std::string_view Expect_L = "expect";
+        static constexpr std::string_view Expect_C = "Expect";
 
         // Response
         static constexpr std::string_view AcceptRanges_L = "accept-ranges";
@@ -130,6 +132,7 @@ public:
         IfNoneMatch,
         Referer,
         UserAgent,
+        Expect,
 
         // Response
         AcceptRanges,

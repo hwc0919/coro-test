@@ -87,6 +87,7 @@ const std::pair<std::string_view, std::string_view> & HttpHeader::codeToNames(Na
         { Name::IfNoneMatch_L, Name::IfNoneMatch_C },
         { Name::Referer_L, Name::Referer_C },
         { Name::UserAgent_L, Name::UserAgent_C },
+        { Name::Expect_L, Name::Expect_C },
         { Name::AcceptRanges_L, Name::AcceptRanges_C },
         { Name::Age_L, Name::Age_C },
         { Name::ETag_L, Name::ETag_C },
@@ -136,6 +137,7 @@ const std::pair<std::string_view, std::string_view> & HttpHeader::codeToNames(Na
     nitrocoro_HTTP_HEADER_CHECK_PAIR(IfNoneMatch);
     nitrocoro_HTTP_HEADER_CHECK_PAIR(Referer);
     nitrocoro_HTTP_HEADER_CHECK_PAIR(UserAgent);
+    nitrocoro_HTTP_HEADER_CHECK_PAIR(Expect);
     nitrocoro_HTTP_HEADER_CHECK_PAIR(AcceptRanges);
     nitrocoro_HTTP_HEADER_CHECK_PAIR(Age);
     nitrocoro_HTTP_HEADER_CHECK_PAIR(ETag);
@@ -200,6 +202,7 @@ HttpHeader::NameCode HttpHeader::nameToCode(std::string_view lowerName)
         { Name::IfNoneMatch_L, NameCode::IfNoneMatch },
         { Name::Referer_L, NameCode::Referer },
         { Name::UserAgent_L, NameCode::UserAgent },
+        { Name::Expect_L, NameCode::Expect },
         { Name::AcceptRanges_L, NameCode::AcceptRanges },
         { Name::Age_L, NameCode::Age },
         { Name::ETag_L, NameCode::ETag },

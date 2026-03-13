@@ -219,6 +219,26 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         }
         else
         {
+            // TODO: refine if logics
+            auto expect = request.getHeader(HttpHeader::Name::Expect_L);
+            if (!expect.empty())
+            {
+                if (expect != "100-continue")
+                {
+                    response.setStatus(StatusCode::k417ExpectationFailed);
+                    co_await response.end("Expectation Failed");
+                    if (!bodyReader->isComplete())
+                        co_await bodyReader->drain();
+                    if (!keepAlive)
+                    {
+                        co_await stream->shutdown();
+                        co_return;
+                    }
+                    continue;
+                }
+                co_await stream->write("HTTP/1.1 100 Continue\r\n\r\n", 25);
+            }
+
             std::exception_ptr exPtr;
             try
             {

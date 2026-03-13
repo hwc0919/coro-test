@@ -402,6 +402,146 @@ NITRO_TEST(http_chunked_keepalive)
     co_await server.stop();
 }
 
+/** Expect: 100-continue — server sends 100 before handler reads body. */
+NITRO_TEST(http_expect_100_continue)
+{
+    HttpServer server(0);
+    server.route("/upload", { "POST" }, [](auto && req, auto && resp) -> Task<> {
+        auto complete = co_await req.toCompleteRequest();
+        co_await resp.end(complete.body());
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+
+    std::string req = "POST /upload HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: 5\r\n"
+                      "Expect: 100-continue\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    // Read 100 Continue
+    char buf[4096];
+    std::string interim;
+    while (interim.find("\r\n\r\n") == std::string::npos)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        interim.append(buf, n);
+    }
+    NITRO_REQUIRE(interim.find("100 Continue") != std::string::npos);
+
+    // Send body
+    std::string body = "hello";
+    co_await conn->write(body.data(), body.size());
+
+    // Read final response
+    std::string resp;
+    while (resp.find("\r\n\r\n") == std::string::npos)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        resp.append(buf, n);
+    }
+    auto clPos = resp.find("content-length: ");
+    NITRO_REQUIRE(clPos != std::string::npos);
+    size_t cl = std::stoul(resp.substr(clPos + 16));
+    size_t headerEnd = resp.find("\r\n\r\n") + 4;
+    while (resp.size() - headerEnd < cl)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        resp.append(buf, n);
+    }
+    NITRO_CHECK(resp.find("200 OK") != std::string::npos);
+    NITRO_CHECK_EQ(resp.substr(headerEnd, cl), "hello");
+
+    co_await server.stop();
+}
+
+/** Expect: 100-continue — handler rejects with 413, connection stays alive. */
+NITRO_TEST(http_expect_100_continue_rejected)
+{
+    HttpServer server(0);
+    server.route("/upload", { "POST" }, [](auto && req, auto && resp) -> Task<> {
+        resp.setStatus(StatusCode::k413RequestEntityTooLarge);
+        co_await resp.end("Too Large");
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+
+    // First request with Expect
+    std::string req1 = "POST /upload HTTP/1.1\r\n"
+                       "Host: 127.0.0.1\r\n"
+                       "Content-Length: 5\r\n"
+                       "Expect: 100-continue\r\n"
+                       "\r\n";
+    co_await conn->write(req1.data(), req1.size());
+
+    // Read 100 then 413
+    char buf[4096];
+    std::string resp1;
+    // Read until we have both 100 and the final response
+    while (resp1.find("413") == std::string::npos)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        resp1.append(buf, n);
+    }
+    NITRO_CHECK(resp1.find("100 Continue") != std::string::npos);
+    NITRO_CHECK(resp1.find("413") != std::string::npos);
+
+    // Send body so server can drain and keep connection alive
+    std::string body = "hello";
+    co_await conn->write(body.data(), body.size());
+
+    // Connection should still be usable
+    std::string req2 = "GET /upload HTTP/1.1\r\n"
+                       "Host: 127.0.0.1\r\n"
+                       "\r\n";
+    co_await conn->write(req2.data(), req2.size());
+    std::string resp2;
+    while (resp2.find("\r\n\r\n") == std::string::npos)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        resp2.append(buf, n);
+    }
+    NITRO_CHECK(resp2.find("405") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Unknown Expect value returns 417 Expectation Failed. */
+NITRO_TEST(http_expect_unknown)
+{
+    HttpServer server(0);
+    server.route("/upload", { "POST" }, [](auto && req, auto && resp) -> Task<> {
+        co_await resp.end("ok");
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+
+    std::string req = "POST /upload HTTP/1.1\r\n"
+                      "Host: 127.0.0.1\r\n"
+                      "Content-Length: 5\r\n"
+                      "Expect: unknown-extension\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    char buf[4096];
+    std::string resp;
+    while (resp.find("\r\n\r\n") == std::string::npos)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        resp.append(buf, n);
+    }
+    NITRO_CHECK(resp.find("417") != std::string::npos);
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
