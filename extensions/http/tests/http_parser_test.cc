@@ -49,32 +49,6 @@ NITRO_TEST(http_parser_request_with_query)
     co_return;
 }
 
-NITRO_TEST(http_parser_request_malformed_line)
-{
-    HttpParser<HttpRequest> parser;
-
-    auto state = parser.parseLine("GET /hello"); // Missing HTTP version
-    NITRO_CHECK_EQ(state, HttpParserState::Error);
-
-    auto result = parser.extractResult();
-    NITRO_CHECK(result.error());
-    NITRO_CHECK_EQ(result.errorCode, HttpParseError::MalformedRequestLine);
-    co_return;
-}
-
-NITRO_TEST(http_parser_request_missing_space)
-{
-    HttpParser<HttpRequest> parser;
-
-    auto state = parser.parseLine("GET"); // Missing path and version
-    NITRO_CHECK_EQ(state, HttpParserState::Error);
-
-    auto result = parser.extractResult();
-    NITRO_CHECK(result.error());
-    NITRO_CHECK_EQ(result.errorCode, HttpParseError::MalformedRequestLine);
-    co_return;
-}
-
 NITRO_TEST(http_parser_request_content_length)
 {
     HttpParser<HttpRequest> parser;
@@ -532,6 +506,112 @@ NITRO_TEST(http_parser_invalid_header_no_colon)
 
     auto result = parser.extractResult();
     NITRO_CHECK(!result.error()); // silently ignored
+    NITRO_CHECK(!result.message.headers.contains(HttpHeader::toLower("InvalidHeaderWithoutColon")));
+    co_return;
+}
+
+NITRO_TEST(http_parser_request_invalid_content_length)
+{
+    // non-numeric
+    {
+        HttpParser<HttpRequest> parser;
+        parser.parseLine("POST /data HTTP/1.1");
+        parser.parseLine("Content-Length: abc");
+        auto state = parser.parseLine("");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+    }
+    // negative string
+    {
+        HttpParser<HttpRequest> parser;
+        parser.parseLine("POST /data HTTP/1.1");
+        parser.parseLine("Content-Length: -1");
+        auto state = parser.parseLine("");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+    }
+    co_return;
+}
+
+NITRO_TEST(http_parser_response_invalid_content_length)
+{
+    HttpParser<HttpResponse> parser;
+    parser.parseLine("HTTP/1.1 200 OK");
+    parser.parseLine("Content-Length: abc");
+    auto state = parser.parseLine("");
+    NITRO_CHECK_EQ(state, HttpParserState::Error);
+    NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+    co_return;
+}
+
+NITRO_TEST(http_parser_request_line)
+{
+    // missing first space
+    {
+        HttpParser<HttpRequest> parser;
+        auto state = parser.parseLine("GET");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+    }
+    // missing second space (no version)
+    {
+        HttpParser<HttpRequest> parser;
+        auto state = parser.parseLine("GET /hello");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+    }
+    // invalid method
+    {
+        HttpParser<HttpRequest> parser;
+        auto state = parser.parseLine("INVALID /hello HTTP/1.1");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+    }
+    // invalid version
+    {
+        HttpParser<HttpRequest> parser;
+        auto state = parser.parseLine("GET /hello HTTP/2.0");
+        NITRO_CHECK_EQ(state, HttpParserState::Error);
+        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+    }
+    // empty path — tolerated, normalized to /
+    {
+        HttpParser<HttpRequest> parser;
+        parser.parseLine("GET  HTTP/1.1");
+        parser.parseLine("Host: example.com");
+        parser.parseLine("");
+        auto result = parser.extractResult();
+        NITRO_CHECK(!result.error());
+        NITRO_CHECK_EQ(result.message.path, "/");
+        NITRO_CHECK(result.message.rawPath.empty());
+    }
+    co_return;
+}
+
+NITRO_TEST(http_parser_invalid_header_token)
+{
+    // header name with space — silently ignored
+    {
+        HttpParser<HttpRequest> parser;
+        parser.parseLine("GET /hello HTTP/1.1");
+        parser.parseLine("Host: example.com");
+        parser.parseLine("Bad Name: value");
+        parser.parseLine("");
+        auto result = parser.extractResult();
+        NITRO_CHECK(!result.error());
+        NITRO_CHECK(!result.message.headers.contains("bad name"));
+    }
+    // header name with control character — silently ignored
+    {
+        HttpParser<HttpRequest> parser;
+        parser.parseLine("GET /hello HTTP/1.1");
+        parser.parseLine("Host: example.com");
+        parser.parseLine("Bad\x01Name: value");
+        parser.parseLine("");
+        auto result = parser.extractResult();
+        NITRO_CHECK(!result.error());
+        NITRO_CHECK(!result.message.headers.contains("bad\x01name"));
+    }
     co_return;
 }
 
