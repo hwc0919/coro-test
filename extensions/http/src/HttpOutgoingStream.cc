@@ -5,6 +5,7 @@
 #include <nitrocoro/http/BodyWriter.h>
 #include <nitrocoro/http/stream/HttpOutgoingStream.h>
 
+#include <ctime>
 #include <optional>
 
 namespace nitrocoro::http
@@ -145,6 +146,14 @@ void HttpOutgoingStreamBase<DataType>::buildHeaders(std::string & buf)
         for (const auto & [name, value] : data_.cookies)
         {
             buf.append("Set-Cookie: ").append(name).append("=").append(value).append("\r\n");
+        }
+
+        if (data_.headers.find(HttpHeader::Name::Date_L) == data_.headers.end())
+        {
+            char dateBuf[32];
+            std::time_t now = std::time(nullptr);
+            std::strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", std::gmtime(&now));
+            buf.append("Date: ").append(dateBuf).append("\r\n");
         }
 
         if (data_.headers.find(HttpHeader::Name::Connection_L) == data_.headers.end())
