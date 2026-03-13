@@ -161,6 +161,43 @@ NITRO_TEST(http_pipeline_content_length_posts)
     co_await server.stop();
 }
 
+/** Chunked POST with trailer fields: trailer should be consumed, next request parses correctly. */
+NITRO_TEST(http_pipeline_chunked_with_trailer)
+{
+    HttpServer server(0);
+    server.route("/echo", { "POST" }, [](auto && req, auto && resp) -> Task<> {
+        auto complete = co_await req.toCompleteRequest();
+        co_await resp.end(complete.body());
+    });
+    server.route("/ping", { "GET" }, [](auto && req, auto && resp) -> Task<> {
+        co_await resp.end("pong");
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+
+    // Chunked POST with trailer, followed by a GET on the same connection
+    std::string reqs = "POST /echo HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+                       "5\r\nhello\r\n"
+                       "0\r\n"
+                       "Checksum: abc123\r\n" // trailer field
+                       "\r\n"
+                       "GET /ping HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    co_await conn->write(reqs.data(), reqs.size());
+
+    std::string buf;
+    auto [h1, b1] = co_await readResponse(conn, buf);
+    NITRO_CHECK(h1.find("200 OK") != std::string::npos);
+    NITRO_CHECK_EQ(b1, "hello");
+
+    auto [h2, b2] = co_await readResponse(conn, buf);
+    NITRO_CHECK(h2.find("200 OK") != std::string::npos);
+    NITRO_CHECK_EQ(b2, "pong");
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);

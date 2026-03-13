@@ -38,8 +38,7 @@ Task<bool> ChunkedReader::parseChunkSize()
 
         if (currentChunkSize_ == 0)
         {
-            co_await skipCRLF();
-            complete_ = true;
+            co_await skipTrailer();
             state_ = State::Complete;
         }
         else
@@ -64,16 +63,44 @@ Task<> ChunkedReader::skipCRLF()
     buffer_->consume(2);
 }
 
+Task<> ChunkedReader::skipTrailer()
+{
+    int lines = 0;
+    while (true)
+    {
+        size_t pos = buffer_->find("\r\n");
+        if (pos == std::string::npos)
+        {
+            if (buffer_->remainSize() >= 8192)
+                throw std::runtime_error("Invalid chunked encoding: trailer line too long");
+
+            char * writePtr = buffer_->prepareWrite(128);
+            size_t n = co_await stream_->read(writePtr, 128);
+            if (n == 0)
+                throw std::runtime_error("Connection closed before chunked trailer complete");
+            buffer_->commitWrite(n);
+            continue;
+        }
+        // ignore trailer headers for now
+        buffer_->consume(pos + 2);
+        if (pos == 0) // 空行，结束
+            break;
+
+        if (++lines > 128)
+            throw std::runtime_error("Invalid chunked encoding: too many trailer headers");
+    }
+}
+
 Task<size_t> ChunkedReader::readImpl(char * buf, size_t len)
 {
-    if (complete_)
+    if (state_ == State::Complete)
         co_return 0;
 
     if (state_ == State::ReadSize)
     {
         if (!co_await parseChunkSize())
             throw std::runtime_error("Invalid chunked encoding");
-        if (complete_)
+        if (state_ == State::Complete)
             co_return 0;
     }
 

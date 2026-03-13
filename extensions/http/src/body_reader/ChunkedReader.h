@@ -16,7 +16,7 @@ public:
         : stream_(std::move(stream)), buffer_(std::move(buffer)) {}
 
     Task<size_t> readImpl(char * buf, size_t len) override;
-    bool isComplete() const override { return complete_; }
+    bool isComplete() const override { return state_ == State::Complete; }
 
 private:
     enum class State
@@ -31,10 +31,10 @@ private:
     State state_ = State::ReadSize;
     size_t currentChunkSize_ = 0;
     size_t currentChunkRead_ = 0;
-    bool complete_ = false;
 
     Task<bool> parseChunkSize();
     Task<> skipCRLF();
+    Task<> skipTrailer();
 };
 
 } // namespace nitrocoro::http
