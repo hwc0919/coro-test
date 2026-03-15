@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpTypes.h>
 
@@ -42,7 +43,7 @@ struct HttpResponse
     uint16_t statusCode{ static_cast<uint16_t>(StatusCode::k200OK) };
     std::string statusReason;
     HttpHeaderMap headers;
-    HttpCookieMap cookies;
+    std::vector<Cookie> cookies;
 
     // Metadata for sending
     TransferMode transferMode = TransferMode::ContentLength;

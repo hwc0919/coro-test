@@ -3,6 +3,7 @@
  * @brief Base classes for read-only HTTP message access
  */
 #pragma once
+#include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
@@ -23,7 +24,6 @@ public:
     explicit HttpMessageAccessor(Message message);
 
     const HttpHeaderMap & headers() const;
-    const HttpCookieMap & cookies() const;
     const std::string & getHeader(std::string_view name) const;
     const std::string & getHeader(HttpHeader::NameCode code) const;
     const std::string & getCookie(std::string_view name) const;
@@ -36,6 +36,8 @@ class HttpRequestAccessor : public HttpMessageAccessor<HttpRequest>
 {
 public:
     using HttpMessageAccessor::HttpMessageAccessor;
+
+    const HttpCookieMap & cookies() const { return message_.cookies; }
 
     Version version() const { return message_.version; }
     HttpMethod method() const { return message_.method; }
@@ -86,6 +88,8 @@ class HttpResponseAccessor : public HttpMessageAccessor<HttpResponse>
 public:
     using HttpMessageAccessor::HttpMessageAccessor;
 
+    const std::vector<Cookie> & cookies() const { return message_.cookies; }
+
     Version version() const { return message_.version; }
     uint16_t statusCode() const { return message_.statusCode; }
     const std::string & statusReason() const { return message_.statusReason; }
@@ -101,12 +105,6 @@ template <typename Message>
 const HttpHeaderMap & HttpMessageAccessor<Message>::headers() const
 {
     return message_.headers;
-}
-
-template <typename Message>
-const HttpCookieMap & HttpMessageAccessor<Message>::cookies() const
-{
-    return message_.cookies;
 }
 
 template <typename Message>

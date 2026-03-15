@@ -4,6 +4,7 @@
  */
 #include "HttpParser.h"
 
+#include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/utils/UrlEncode.h>
 
@@ -302,14 +303,10 @@ void HttpParser<HttpRequest>::parseQueryString(std::string_view queryStr)
 
 void HttpParser<HttpRequest>::parseCookies(const std::string & cookieHeader)
 {
-    // TODO: parse cookies correctly
     std::string_view cookies(cookieHeader);
     size_t start = 0;
     while (start < cookies.size())
     {
-        while (start < cookies.size() && cookies[start] == ' ')
-            ++start;
-
         size_t semiPos = cookies.find(';', start);
         size_t end = (semiPos == std::string_view::npos) ? cookies.size() : semiPos;
 
@@ -317,7 +314,15 @@ void HttpParser<HttpRequest>::parseCookies(const std::string & cookieHeader)
         size_t eqPos = pair.find('=');
         if (eqPos != std::string_view::npos)
         {
-            data_.cookies[std::string(pair.substr(0, eqPos))] = std::string(pair.substr(eqPos + 1));
+            auto trim = [](std::string_view s) {
+                size_t l = s.find_first_not_of(' ');
+                size_t r = s.find_last_not_of(' ');
+                return (l == std::string_view::npos) ? std::string_view{} : s.substr(l, r - l + 1);
+            };
+            auto name = trim(pair.substr(0, eqPos));
+            auto value = trim(pair.substr(eqPos + 1));
+            if (!name.empty())
+                data_.cookies[std::string(name)] = std::string(value);
         }
 
         if (semiPos == std::string_view::npos)
@@ -496,15 +501,10 @@ void HttpParser<HttpResponse>::parseHeader(std::string_view line)
 
 void HttpParser<HttpResponse>::parseCookies(const std::string & cookieHeader)
 {
-    size_t eqPos = cookieHeader.find('=');
-    if (eqPos != std::string::npos)
+    Cookie cookie = Cookie::fromString(cookieHeader);
+    if (!cookie.name.empty())
     {
-        size_t endPos = cookieHeader.find(';', eqPos);
-        std::string name = cookieHeader.substr(0, eqPos);
-        std::string value = (endPos != std::string::npos)
-                                ? cookieHeader.substr(eqPos + 1, endPos - eqPos - 1)
-                                : cookieHeader.substr(eqPos + 1);
-        data_.cookies.insert_or_assign(std::move(name), std::move(value));
+        data_.cookies.push_back(std::move(cookie));
     }
 }
 

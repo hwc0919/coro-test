@@ -3,6 +3,7 @@
  * @brief HTTP outgoing stream implementations
  */
 #include <nitrocoro/http/BodyWriter.h>
+#include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/stream/HttpOutgoingStream.h>
 
 #include <ctime>
@@ -51,12 +52,6 @@ template <typename DataType>
 void HttpOutgoingStreamBase<DataType>::setHeader(HttpHeader header)
 {
     data_.headers.insert_or_assign(header.name(), std::move(header));
-}
-
-template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::setCookie(const std::string & name, std::string value)
-{
-    data_.cookies[name] = std::move(value);
 }
 
 template <typename DataType>
@@ -124,9 +119,18 @@ void HttpOutgoingStreamBase<DataType>::buildHeaders(std::string & buf)
             buf.append(header.name()).append(": ").append(header.value()).append("\r\n");
         }
 
-        for (const auto & [name, value] : data_.cookies)
+        if (!data_.cookies.empty())
         {
-            buf.append("Cookie: ").append(name).append("=").append(value).append("\r\n");
+            buf.append("Cookie: ");
+            bool first = true;
+            for (const auto & [name, value] : data_.cookies)
+            {
+                if (!first)
+                    buf.append("; ");
+                buf.append(name).append("=").append(value);
+                first = false;
+            }
+            buf.append("\r\n");
         }
     }
     else // HttpResponse
@@ -143,9 +147,9 @@ void HttpOutgoingStreamBase<DataType>::buildHeaders(std::string & buf)
             buf.append(header.name()).append(": ").append(header.value()).append("\r\n");
         }
 
-        for (const auto & [name, value] : data_.cookies)
+        for (const auto & cookie : data_.cookies)
         {
-            buf.append("Set-Cookie: ").append(name).append("=").append(value).append("\r\n");
+            buf.append("Set-Cookie: ").append(cookie.toString()).append("\r\n");
         }
 
         if (sendDateHeader_ && data_.headers.find(HttpHeader::Name::Date_L) == data_.headers.end())

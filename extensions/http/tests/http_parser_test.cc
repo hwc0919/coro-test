@@ -61,7 +61,7 @@ NITRO_TEST(http_parser_request_query_accessor)
         NITRO_CHECK_EQ(req.queryString(), "q=hello+world&page=1");
         NITRO_CHECK_EQ(req.getQuery("q"), "hello world");
         NITRO_CHECK_EQ(req.getQuery("page"), "1");
-        NITRO_CHECK_EQ(req.getQuery("missing"), "");
+        NITRO_CHECK(req.getQuery("missing").empty());
     }
     // first-wins on duplicate keys
     {
@@ -429,7 +429,7 @@ NITRO_TEST(http_parser_empty_header_value)
     auto result = parser.extractResult();
     NITRO_CHECK(!result.error());
     NITRO_CHECK(result.message.headers.contains("x-empty"));
-    NITRO_CHECK_EQ(result.message.headers.at("x-empty").value(), "");
+    NITRO_CHECK(result.message.headers.at("x-empty").value().empty());
     co_return;
 }
 
@@ -523,7 +523,9 @@ NITRO_TEST(http_parser_response_set_cookie)
 
     auto result = parser.extractResult();
     NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.at("session"), "abc123");
+    NITRO_CHECK_EQ(result.message.cookies.size(), 1);
+    NITRO_CHECK_EQ(result.message.cookies[0].name, "session");
+    NITRO_CHECK_EQ(result.message.cookies[0].value, "abc123");
     co_return;
 }
 

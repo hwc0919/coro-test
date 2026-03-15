@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <nitrocoro/http/BodyWriter.h>
+#include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
@@ -43,7 +44,6 @@ public:
     void setHeader(std::string_view name, std::string value);
     void setHeader(HttpHeader::NameCode code, std::string value);
     void setHeader(HttpHeader header);
-    void setCookie(const std::string & name, std::string value);
     Task<> write(const char * data, size_t len);
     Task<> write(std::string_view data);
     Task<> end();
@@ -99,6 +99,7 @@ public:
     void setMethod(std::string_view method) { data_.method = HttpMethod::fromString(method); }
     void setPath(const std::string & path) { data_.path = path; }
     void setVersion(Version version) { data_.version = version; }
+    void setCookie(const std::string & name, std::string value) { data_.cookies[name] = std::move(value); }
 };
 
 // ============================================================================
@@ -127,6 +128,7 @@ public:
     void setStatus(StatusCode code, const std::string & reason = "");
     void setVersion(Version version) { data_.version = version; }
     void setCloseConnection(bool shouldClose) { data_.shouldClose = shouldClose; }
+    void addCookie(Cookie cookie) { data_.cookies.push_back(std::move(cookie)); }
 };
 
 } // namespace nitrocoro::http
