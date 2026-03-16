@@ -78,4 +78,8 @@ if (BUILD_TESTING)
     add_executable(form_test tests/form_test.cc)
     target_link_libraries(form_test PRIVATE nitrocoro-http)
     add_test(NAME form_test COMMAND form_test)
+
+    add_executable(middleware_test tests/middleware_test.cc)
+    target_link_libraries(middleware_test PRIVATE nitrocoro-http)
+    add_test(NAME middleware_test COMMAND middleware_test)
 endif ()

@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <nitrocoro/http/HttpRouter.h>
+#include <nitrocoro/http/Middleware.h>
 
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
@@ -12,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace nitrocoro::http
 {
@@ -38,6 +40,7 @@ public:
 
     void setStreamUpgrader(StreamUpgrader upgrader);
     void setRequestUpgrader(RequestUpgrader upgrader);
+    void use(Middleware middleware);
 
     // Convenience: forwards to the internal router.
     template <typename F>
@@ -67,6 +70,7 @@ private:
     uint16_t port_;
     StreamUpgrader upgrader_;
     RequestUpgrader requestUpgrader_;
+    std::vector<Middleware> middlewares_;
     std::shared_ptr<HttpRouter> router_;
     std::unique_ptr<net::TcpServer> server_;
 };

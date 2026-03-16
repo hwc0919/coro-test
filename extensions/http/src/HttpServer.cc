@@ -116,6 +116,11 @@ void HttpServer::setRequestUpgrader(RequestUpgrader upgrader)
     requestUpgrader_ = std::move(upgrader);
 }
 
+void HttpServer::use(Middleware middleware)
+{
+    middlewares_.push_back(std::move(middleware));
+}
+
 Task<> HttpServer::start()
 {
     NITRO_INFO("HTTP server listening on port %hu", port_);
@@ -269,7 +274,21 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             std::exception_ptr exPtr;
             try
             {
-                co_await result.handler->invoke(request, response, std::move(result.params));
+                auto & middlewares = middlewares_;
+                auto invokeChain = [&](auto & self, size_t index,
+                                       IncomingRequestPtr req, ServerResponsePtr resp, PathParams & params) -> Task<> {
+                    if (index < middlewares.size())
+                    {
+                        co_await middlewares[index](req, resp, params, [&]() -> Task<> {
+                            co_await self(self, index + 1, req, resp, params);
+                        });
+                    }
+                    else
+                    {
+                        co_await result.handler->invoke(req, resp, std::move(params));
+                    }
+                };
+                co_await invokeChain(invokeChain, 0, request, response, result.params);
             }
             catch (const std::exception & ex)
             {
