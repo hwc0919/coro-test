@@ -15,7 +15,7 @@ using namespace nitrocoro::http;
 
 Task<> server_main(uint16_t port)
 {
-    HttpServer server(port);
+    HttpServer server({ .port = port, .send_date_header = false });
 
     server.route("/", { "GET" }, [](auto req, auto resp) -> Task<> {
         resp->setStatus(StatusCode::k200OK);
