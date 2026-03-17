@@ -14,6 +14,6 @@ namespace nitrocoro::http
 {
 
 using NextHandler = std::function<Task<>()>;
-using Middleware = std::function<Task<>(IncomingRequestPtr, ServerResponsePtr, PathParams &, NextHandler)>;
+using Middleware = std::function<Task<>(IncomingRequestPtr, ServerResponsePtr, NextHandler)>;
 
 } // namespace nitrocoro::http

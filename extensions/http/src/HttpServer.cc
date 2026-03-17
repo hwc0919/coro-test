@@ -279,7 +279,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
                                        IncomingRequestPtr req, ServerResponsePtr resp, PathParams & params) -> Task<> {
                     if (index < middlewares.size())
                     {
-                        co_await middlewares[index](req, resp, params, [&]() -> Task<> {
+                        co_await middlewares[index](req, resp, [&]() -> Task<> {
                             co_await self(self, index + 1, req, resp, params);
                         });
                     }

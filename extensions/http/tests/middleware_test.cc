@@ -25,7 +25,7 @@ NITRO_TEST(middleware_single)
     HttpServer server(0);
     bool middlewareCalled = false;
 
-    server.use([&](auto req, auto resp, auto & params, auto next) -> Task<> {
+    server.use([&](auto req, auto resp, auto next) -> Task<> {
         middlewareCalled = true;
         co_await next();
     });
@@ -49,12 +49,12 @@ NITRO_TEST(middleware_order)
     HttpServer server(0);
     std::string log;
 
-    server.use([&](auto req, auto resp, auto & params, auto next) -> Task<> {
+    server.use([&](auto req, auto resp, auto next) -> Task<> {
         log += "A-before;";
         co_await next();
         log += "A-after;";
     });
-    server.use([&](auto req, auto resp, auto & params, auto next) -> Task<> {
+    server.use([&](auto req, auto resp, auto next) -> Task<> {
         log += "B-before;";
         co_await next();
         log += "B-after;";
@@ -78,7 +78,7 @@ NITRO_TEST(middleware_short_circuit)
     HttpServer server(0);
     bool handlerCalled = false;
 
-    server.use([](auto req, auto resp, auto & params, auto next) -> Task<> {
+    server.use([](auto req, auto resp, auto next) -> Task<> {
         resp->setStatus(StatusCode::k401Unauthorized);
         co_await resp->end("Unauthorized");
         // next() not called
@@ -102,10 +102,10 @@ NITRO_TEST(middleware_short_circuit)
 NITRO_TEST(middleware_path_params)
 {
     HttpServer server(0);
-    std::string capturedId;
+    std::string capturedPath;
 
-    server.use([&](auto req, auto resp, auto & params, auto next) -> Task<> {
-        capturedId = params["id"];
+    server.use([&](auto req, auto resp, auto next) -> Task<> {
+        capturedPath = req->path();
         co_await next();
     });
     server.route("/users/:id", { "GET" }, [](auto req, auto resp) -> Task<> {
@@ -116,7 +116,7 @@ NITRO_TEST(middleware_path_params)
     HttpClient client;
     auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/users/42");
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
-    NITRO_CHECK_EQ(capturedId, "42");
+    NITRO_CHECK_EQ(capturedPath, "/users/42");
 
     co_await server.stop();
 }
