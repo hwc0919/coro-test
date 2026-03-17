@@ -580,6 +580,43 @@ NITRO_TEST(http_date_header)
     }
 }
 
+/** Path parameter is accessible via req->pathParams() in handler. */
+NITRO_TEST(http_path_params)
+{
+    HttpServer server(0);
+    server.route("/users/:id/posts/:pid", { "GET" }, [](auto req, auto resp) -> Task<> {
+        const auto & params = req->pathParams();
+        co_await resp->end(params.at("id") + "," + params.at("pid"));
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get(
+        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/users/42/posts/99");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "42,99");
+
+    co_await server.stop();
+}
+
+/** routeRegex: capture groups accessible via req->pathParams() as $1, $2. */
+NITRO_TEST(http_route_regex)
+{
+    HttpServer server(0);
+    server.routeRegex(R"(/items/(\d+))", { "GET" }, [](auto req, auto resp) -> Task<> {
+        co_await resp->end(req->pathParams().at("$1"));
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get(
+        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/items/123");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "123");
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);

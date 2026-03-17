@@ -102,10 +102,10 @@ NITRO_TEST(middleware_short_circuit)
 NITRO_TEST(middleware_path_params)
 {
     HttpServer server(0);
-    std::string capturedPath;
+    std::string capturedId;
 
     server.use([&](auto req, auto resp, auto next) -> Task<> {
-        capturedPath = req->path();
+        capturedId = req->pathParams().at("id");
         co_await next();
     });
     server.route("/users/:id", { "GET" }, [](auto req, auto resp) -> Task<> {
@@ -116,7 +116,7 @@ NITRO_TEST(middleware_path_params)
     HttpClient client;
     auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/users/42");
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
-    NITRO_CHECK_EQ(capturedPath, "/users/42");
+    NITRO_CHECK_EQ(capturedId, "42");
 
     co_await server.stop();
 }

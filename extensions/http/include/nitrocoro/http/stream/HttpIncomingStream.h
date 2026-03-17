@@ -43,6 +43,8 @@ protected:
 template <typename T>
 class HttpIncomingStream;
 
+using PathParams = std::unordered_map<std::string, std::string>;
+
 template <>
 class HttpIncomingStream<HttpRequest>
     : public HttpRequestAccessor,
@@ -53,6 +55,12 @@ public:
         : HttpRequestAccessor(std::move(message)), detail::HttpIncomingStreamBase(std::move(bodyReader)) {}
 
     Task<HttpCompleteRequest> toCompleteRequest();
+
+    PathParams & pathParams() { return pathParams_; }
+    const PathParams & pathParams() const { return pathParams_; }
+
+protected:
+    PathParams pathParams_;
 };
 
 template <>

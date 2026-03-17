@@ -230,18 +230,29 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
         [opts = std::move(opts),
          preCalc = std::move(preCalc),
          caches = std::make_shared<SchedulerCaches>()](IncomingRequestPtr req,
-                                                       ServerResponsePtr resp,
-                                                       PathParams params) mutable -> Task<> {
+                                                       ServerResponsePtr resp) mutable -> Task<> {
             const fs::path & root = preCalc.root;
             const std::string & cacheControlValue = preCalc.cacheControlValue;
             FileCache * cache = caches->getCurrent();
 
             // Resolve path: take the first (and only) wildcard param
             std::string relPath;
-            if (!params.empty())
-                relPath = params.begin()->second;
+            const PathParams & pathParams = req->pathParams();
+            if (!pathParams.empty())
+            {
+                if (auto iter = pathParams.find("path"); iter != pathParams.end())
+                {
+                    relPath = iter->second;
+                }
+                else
+                {
+                    relPath = pathParams.begin()->second;
+                }
+            }
             if (!relPath.empty() && relPath.front() == '/')
+            {
                 relPath.erase(0, 1);
+            }
 
             fs::path filePath = fs::weakly_canonical(root / relPath);
 

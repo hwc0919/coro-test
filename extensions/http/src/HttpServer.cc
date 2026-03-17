@@ -224,22 +224,23 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             continue;
         }
 
-        auto result = router_->route(method, request->path());
-        if (result.reason != HttpRouter::RouteResult::Reason::Ok || !result.handler)
+        auto routeRes = router_->route(method, request->path());
+        request->pathParams() = std::move(routeRes.params);
+        if (routeRes.reason != HttpRouter::RouteResult::Reason::Ok || !routeRes.handler)
         {
             // TODO: custom handler? 404 could use * route?
-            if (result.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed)
+            if (routeRes.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed)
             {
                 if (method == methods::Options)
                 {
                     response->setStatus(StatusCode::k200OK);
-                    response->setHeader(HttpHeader::NameCode::Allow, result.allowedMethods);
+                    response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
                     co_await response->end();
                 }
                 else
                 {
                     response->setStatus(StatusCode::k405MethodNotAllowed);
-                    response->setHeader(HttpHeader::NameCode::Allow, result.allowedMethods);
+                    response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
                     co_await response->end("Method Not Allowed");
                 }
             }
@@ -276,19 +277,19 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             {
                 auto & middlewares = middlewares_;
                 auto invokeChain = [&](auto & self, size_t index,
-                                       IncomingRequestPtr req, ServerResponsePtr resp, PathParams & params) -> Task<> {
+                                       IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
                     if (index < middlewares.size())
                     {
                         co_await middlewares[index](req, resp, [&]() -> Task<> {
-                            co_await self(self, index + 1, req, resp, params);
+                            co_await self(self, index + 1, req, resp);
                         });
                     }
                     else
                     {
-                        co_await result.handler->invoke(req, resp, std::move(params));
+                        co_await routeRes.handler->invoke(req, resp);
                     }
                 };
-                co_await invokeChain(invokeChain, 0, request, response, result.params);
+                co_await invokeChain(invokeChain, 0, request, response);
             }
             catch (const std::exception & ex)
             {

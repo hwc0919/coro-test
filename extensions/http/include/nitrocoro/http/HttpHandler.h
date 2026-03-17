@@ -9,32 +9,17 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 namespace nitrocoro::http
 {
 
-using PathParams = std::unordered_map<std::string, std::string>;
-
-// ── Abstract base ─────────────────────────────────────────────────────────────
-
 struct HttpHandlerBase
 {
-    virtual Task<> invoke(IncomingRequestPtr request,
-                          ServerResponsePtr response,
-                          PathParams params)
-        = 0;
+    virtual Task<> invoke(IncomingRequestPtr request, ServerResponsePtr response) = 0;
     virtual ~HttpHandlerBase() = default;
 };
 
 using HttpHandlerPtr = std::shared_ptr<HttpHandlerBase>;
-
-// ── Concrete handler ──────────────────────────────────────────────────────────
-//
-// Supported signatures:
-//   (HttpIncomingStream<HttpRequest>, HttpOutgoingStream<HttpResponse>, PathParams)
-//   (HttpIncomingStream<HttpRequest>, HttpOutgoingStream<HttpResponse>)
-//   (HttpOutgoingStream<HttpResponse>)
 
 template <typename F>
 struct HttpHandler : HttpHandlerBase
@@ -43,15 +28,9 @@ struct HttpHandler : HttpHandlerBase
         : f_(std::move(f)) {}
 
     Task<> invoke(IncomingRequestPtr request,
-                  ServerResponsePtr response,
-                  PathParams params) override
+                  ServerResponsePtr response) override
     {
-        using ReqPtr = IncomingRequestPtr;
-        using RespPtr = ServerResponsePtr;
-
-        if constexpr (std::is_invocable_v<F, ReqPtr, RespPtr, PathParams>)
-            co_await f_(request, response, std::move(params));
-        else if constexpr (std::is_invocable_v<F, ReqPtr, RespPtr>)
+        if constexpr (std::is_invocable_v<F, IncomingRequestPtr, ServerResponsePtr>)
             co_await f_(request, response);
         else
             static_assert(sizeof(F) == 0, "Unsupported handler signature");
