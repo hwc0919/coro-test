@@ -198,6 +198,39 @@ NITRO_TEST(http_pipeline_chunked_with_trailer)
     co_await server.stop();
 }
 
+/** 404 response in the middle of a pipeline does not break subsequent requests. */
+NITRO_TEST(http_pipeline_404_in_middle)
+{
+    HttpServer server(0);
+    server.route("/ok", { "GET" }, [](auto req, auto resp) -> Task<> {
+        co_await resp->end("ok");
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+
+    std::string reqs =
+        "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+        "GET /missing HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+        "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    co_await conn->write(reqs.data(), reqs.size());
+
+    std::string buf;
+    auto [h1, b1] = co_await readResponse(conn, buf);
+    NITRO_CHECK(h1.find("200 OK") != std::string::npos);
+    NITRO_CHECK_EQ(b1, "ok");
+
+    auto [h2, b2] = co_await readResponse(conn, buf);
+    NITRO_CHECK(h2.find("404") != std::string::npos);
+
+    auto [h3, b3] = co_await readResponse(conn, buf);
+    NITRO_CHECK(h3.find("200 OK") != std::string::npos);
+    NITRO_CHECK_EQ(b3, "ok");
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
