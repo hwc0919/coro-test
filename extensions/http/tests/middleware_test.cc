@@ -122,6 +122,52 @@ NITRO_TEST(middleware_path_params)
     co_await server.stop();
 }
 
+/** Middleware after-next code can override handler's response body. */
+NITRO_TEST(middleware_after_override_body)
+{
+    HttpServer server(0);
+
+    server.use([](auto req, auto resp, auto next) -> Task<> {
+        co_await next();
+        resp->setBody("overridden");
+    });
+    server.route("/", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("original");
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "overridden");
+
+    co_await server.stop();
+}
+
+/** Middleware after-next code can override status and headers. */
+NITRO_TEST(middleware_after_override_status_and_header)
+{
+    HttpServer server(0);
+
+    server.use([](auto req, auto resp, auto next) -> Task<> {
+        co_await next();
+        resp->setStatus(StatusCode::k201Created);
+        resp->setHeader("x-custom", "injected");
+    });
+    server.route("/", { "GET" }, [](auto req, auto resp) {
+        resp->setStatus(StatusCode::k200OK);
+        resp->setBody("ok");
+    });
+    co_await start_server(server);
+
+    HttpClient client;
+    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k201Created);
+    NITRO_CHECK_EQ(resp.getHeader("x-custom"), "injected");
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
