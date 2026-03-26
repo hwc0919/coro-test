@@ -5,7 +5,7 @@
 #pragma once
 
 #include <nitrocoro/http/stream/HttpIncomingStream.h>
-#include <nitrocoro/http/stream/HttpOutgoingStream.h>
+#include <nitrocoro/http/stream/HttpOutgoingMessage.h>
 
 #include <memory>
 
@@ -15,8 +15,8 @@ namespace nitrocoro::http
 using IncomingRequest = HttpIncomingStream<HttpRequest>;
 using IncomingResponse = HttpIncomingStream<HttpResponse>;
 
-using ClientRequest = HttpOutgoingStream<HttpRequest>;
-using ServerResponse = HttpOutgoingStream<HttpResponse>;
+using ClientRequest = HttpOutgoingMessage<HttpRequest>;
+using ServerResponse = HttpOutgoingMessage<HttpResponse>;
 
 using IncomingRequestPtr = std::shared_ptr<IncomingRequest>;
 using IncomingResponsePtr = std::shared_ptr<IncomingResponse>;

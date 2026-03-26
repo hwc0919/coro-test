@@ -54,8 +54,8 @@ static Task<std::pair<std::string, std::string>> readResponse(
 NITRO_TEST(http_pipeline_gets)
 {
     HttpServer server(0);
-    server.route("/echo", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end(req->getQuery("v"));
+    server.route("/echo", { "GET" }, [](auto req, auto resp) {
+        resp->setBody(req->getQuery("v"));
     });
     co_await start_server(server);
 
@@ -85,10 +85,10 @@ NITRO_TEST(http_pipeline_chunked_then_gets)
     HttpServer server(0);
     server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
-    server.route("/ping", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("pong");
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("pong");
     });
     co_await start_server(server);
 
@@ -131,7 +131,7 @@ NITRO_TEST(http_pipeline_content_length_posts)
     HttpServer server(0);
     server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
     co_await start_server(server);
 
@@ -167,10 +167,10 @@ NITRO_TEST(http_pipeline_chunked_with_trailer)
     HttpServer server(0);
     server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
-    server.route("/ping", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("pong");
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("pong");
     });
     co_await start_server(server);
 
@@ -202,18 +202,17 @@ NITRO_TEST(http_pipeline_chunked_with_trailer)
 NITRO_TEST(http_pipeline_404_in_middle)
 {
     HttpServer server(0);
-    server.route("/ok", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/ok", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
     auto conn = co_await net::TcpConnection::connect(
         net::InetAddress("127.0.0.1", server.listeningPort()));
 
-    std::string reqs =
-        "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-        "GET /missing HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-        "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    std::string reqs = "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+                       "GET /missing HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+                       "GET /ok HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
     co_await conn->write(reqs.data(), reqs.size());
 
     std::string buf;

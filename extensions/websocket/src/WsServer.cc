@@ -26,14 +26,14 @@ void WsServer::route(const std::string & path, Handler handler)
 void WsServer::attachTo(http::HttpServer & server)
 {
     server.setRequestUpgrader([this](http::HttpIncomingStream<http::HttpRequest> & req,
-                                     http::HttpOutgoingStream<http::HttpResponse> & resp,
+                                     http::HttpOutgoingMessage<http::HttpResponse> & resp,
                                      io::StreamPtr stream) -> Task<bool> {
         co_return co_await handleUpgrade(req, resp, std::move(stream));
     });
 }
 
 Task<bool> WsServer::handleUpgrade(http::HttpIncomingStream<http::HttpRequest> & req,
-                                   http::HttpOutgoingStream<http::HttpResponse> & resp,
+                                   http::HttpOutgoingMessage<http::HttpResponse> & resp,
                                    io::StreamPtr stream)
 {
     using http::HttpHeader;
@@ -57,7 +57,7 @@ Task<bool> WsServer::handleUpgrade(http::HttpIncomingStream<http::HttpRequest> &
     resp.setHeader(HttpHeader::NameCode::Upgrade, "websocket");
     resp.setHeader(HttpHeader::NameCode::Connection, "Upgrade");
     resp.setHeader(HttpHeader::NameCode::SecWebSocketAccept, accept);
-    co_await resp.end();
+    co_await resp.flush();
 
     WsConnection conn(std::move(stream));
     co_await it->second(conn);

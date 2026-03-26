@@ -12,7 +12,7 @@ using namespace nitrocoro::http;
 
 static auto dummyHandler()
 {
-    return [](auto req, auto resp) -> Task<> { co_return; };
+    return [](auto req, auto resp) {};
 }
 
 static HttpRouter::RouteResult match(const HttpRouter & router,
@@ -312,9 +312,8 @@ NITRO_TEST(router_exact_beats_param)
 {
     HttpRouter router;
     bool exactCalled = false;
-    router.addRoute("/users/me", { "GET" }, [&exactCalled](auto req, auto resp) -> Task<> {
+    router.addRoute("/users/me", { "GET" }, [&exactCalled](auto req, auto resp) {
         exactCalled = true;
-        co_return;
     });
     router.addRoute("/users/:id", { "GET" }, dummyHandler());
 
@@ -368,9 +367,8 @@ NITRO_TEST(router_head_override)
     HttpRouter router;
     bool headCalled = false;
     router.addRoute("/hello", { "GET" }, dummyHandler());
-    router.addRoute("/hello", { "HEAD" }, [&headCalled](auto req, auto resp) -> Task<> {
+    router.addRoute("/hello", { "HEAD" }, [&headCalled](auto req, auto resp) {
         headCalled = true;
-        co_return;
     });
 
     auto result = match(router, methods::Head, "/hello");

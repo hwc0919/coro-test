@@ -161,7 +161,7 @@ Task<HttpClientSession> HttpClient::stream(const HttpMethod & method, const std:
     }
 
     // Create outgoing stream for request body
-    HttpOutgoingStream<HttpRequest> requestStream(anyStream);
+    HttpOutgoingMessage<HttpRequest> requestStream(anyStream);
     requestStream.setMethod(method);
     requestStream.setPath(parsedUrl.path());
     requestStream.setHeader(HttpHeader::NameCode::Host, parsedUrl.host());

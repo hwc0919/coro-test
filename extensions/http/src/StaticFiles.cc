@@ -265,7 +265,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
             if (rel.empty() || *rel.begin() == "..")
             {
                 resp->setStatus(403);
-                co_await resp->end();
                 co_return;
             }
 
@@ -274,7 +273,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
             if (::stat(filePath.string().c_str(), &st) != 0 || !S_ISREG(st.st_mode))
             {
                 resp->setStatus(404);
-                co_await resp->end();
                 co_return;
             }
 
@@ -295,7 +293,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
                 if (!ims.empty() && ims == lastModified)
                 {
                     resp->setStatus(304);
-                    co_await resp->end();
                     co_return;
                 }
                 resp->setHeader(HttpHeader::NameCode::LastModified, lastModified);
@@ -310,7 +307,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
                 if (!ifNoneMatch.empty() && ifNoneMatch == etag)
                 {
                     resp->setStatus(304);
-                    co_await resp->end();
                     co_return;
                 }
                 resp->setHeader("ETag", etag);
@@ -376,8 +372,7 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
 
                         // Skip body when HEAD
                         if (req->method() != methods::Head)
-                            co_await resp->write(cached->data.data(), cached->data.size());
-                        co_await resp->end();
+                            resp->setBody(cached->data.data(), cached->data.size());
                         co_return;
                     }
                 }
@@ -396,7 +391,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
             // HEAD: headers only
             if (req->method() == methods::Head)
             {
-                co_await resp->end();
                 co_return;
             }
 
@@ -406,7 +400,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
             if (!fp)
             {
                 resp->setStatus(500);
-                co_await resp->end();
                 co_return;
             }
 
@@ -418,7 +411,6 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
                 if (std::fread(fileData.data(), 1, fileData.size(), fp.get()) != fileData.size())
                 {
                     resp->setStatus(500);
-                    co_await resp->end();
                     co_return;
                 }
                 const CacheNode & node = cache->put(
@@ -433,7 +425,7 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
                     },
                     opts.cache_max_cache_size);
 
-                co_await resp->write(node.data.data(), node.data.size());
+                resp->setBody(node.data.data(), node.data.size());
             }
             else
             {
@@ -445,12 +437,10 @@ HttpHandlerPtr staticFiles(std::string_view root, StaticFilesOptions opts)
                     size_t n = std::fread(buf, 1, std::min(remaining, kChunkSize), fp.get());
                     if (n == 0)
                         break;
-                    co_await resp->write(buf, n);
+                    resp->setBody(buf, n);
                     remaining -= n;
                 }
             }
-
-            co_await resp->end();
         });
 }
 

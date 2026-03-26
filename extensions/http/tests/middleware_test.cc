@@ -29,8 +29,8 @@ NITRO_TEST(middleware_single)
         middlewareCalled = true;
         co_await next();
     });
-    server.route("/", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -59,9 +59,9 @@ NITRO_TEST(middleware_order)
         co_await next();
         log += "B-after;";
     });
-    server.route("/", { "GET" }, [&](auto req, auto resp) -> Task<> {
+    server.route("/", { "GET" }, [&](auto req, auto resp) {
         log += "handler;";
-        co_await resp->end("ok");
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -80,12 +80,13 @@ NITRO_TEST(middleware_short_circuit)
 
     server.use([](auto req, auto resp, auto next) -> Task<> {
         resp->setStatus(StatusCode::k401Unauthorized);
-        co_await resp->end("Unauthorized");
+        resp->setBody("Unauthorized");
         // next() not called
+        co_return;
     });
-    server.route("/", { "GET" }, [&](auto req, auto resp) -> Task<> {
+    server.route("/", { "GET" }, [&](auto req, auto resp) {
         handlerCalled = true;
-        co_await resp->end("ok");
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -108,8 +109,8 @@ NITRO_TEST(middleware_path_params)
         capturedId = req->pathParams().at("id");
         co_await next();
     });
-    server.route("/users/:id", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/users/:id", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 

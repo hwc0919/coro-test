@@ -17,20 +17,20 @@ Task<> server_main(uint16_t port)
 {
     HttpServer server({ .port = port, .send_date_header = false });
 
-    server.route("/", { "GET" }, [](auto req, auto resp) -> Task<> {
+    server.route("/", { "GET" }, [](auto req, auto resp) {
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/html; charset=utf-8");
-        co_await resp->end("<h1>Hello, World!</h1>");
+        resp->setBody("<h1>Hello, World!</h1>");
     });
 
-    server.route("/large", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
+    server.route("/large", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) {
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/html; charset=utf-8");
         std::string largeBody(1024 * 1024, 'a');
-        co_await resp->end(largeBody);
+        resp->setBody(largeBody);
     });
 
-    server.route("/hello", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
+    server.route("/hello", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) {
         auto & name = req->getQuery("name");
         std::string body = "Hello, ";
         body += name.empty() ? "Guest" : name;
@@ -38,7 +38,7 @@ Task<> server_main(uint16_t port)
 
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/plain");
-        co_await resp->end(body);
+        resp->setBody(body);
     });
 
     server.route("/sleep", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
@@ -47,7 +47,7 @@ Task<> server_main(uint16_t port)
         co_await sleep(std::chrono::seconds(3));
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/plain");
-        co_await resp->end("wakeup after 3 seconds");
+        resp->setBody("wakeup after 3 seconds");
     });
 
     server.route("/echo", { "POST" }, [](IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
@@ -55,7 +55,7 @@ Task<> server_main(uint16_t port)
         co_await req->readToEnd(bodyBuf);
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/plain");
-        co_await resp->end(bodyBuf.view());
+        resp->setBody(bodyBuf.extract());
     });
 
     server.route("/form", { "POST" }, [](IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
@@ -73,7 +73,7 @@ Task<> server_main(uint16_t port)
 
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/plain");
-        co_await resp->end(response);
+        resp->setBody(response);
     });
 
     co_await server.start();

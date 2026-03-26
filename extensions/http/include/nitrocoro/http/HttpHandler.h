@@ -31,7 +31,14 @@ struct HttpHandler : HttpHandlerBase
                   ServerResponsePtr response) override
     {
         if constexpr (std::is_invocable_v<F, IncomingRequestPtr, ServerResponsePtr>)
-            co_await f_(request, response);
+            if constexpr (is_awaitable_v<std::invoke_result_t<F, IncomingRequestPtr, ServerResponsePtr>>)
+            {
+                co_await f_(request, response);
+            }
+            else
+            {
+                f_(request, response);
+            }
         else
             static_assert(sizeof(F) == 0, "Unsupported handler signature");
     }

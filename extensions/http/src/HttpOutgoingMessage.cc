@@ -1,10 +1,10 @@
 /**
- * @file HttpOutgoingStream.cc
+ * @file HttpOutgoingMessage.cc
  * @brief HTTP outgoing stream implementations
  */
 #include <nitrocoro/http/BodyWriter.h>
 #include <nitrocoro/http/Cookie.h>
-#include <nitrocoro/http/stream/HttpOutgoingStream.h>
+#include <nitrocoro/http/stream/HttpOutgoingMessage.h>
 
 #include <ctime>
 #include <optional>
@@ -31,79 +31,122 @@ namespace nitrocoro::http::detail
 {
 
 // ============================================================================
-// HttpOutgoingStreamBase Implementation
+// HttpOutgoingMessageBase Implementation
 // ============================================================================
 
 template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::setHeader(std::string_view name, std::string value)
+void HttpOutgoingMessageBase<DataType>::setHeader(std::string_view name, std::string value)
 {
     HttpHeader header(name, std::move(value));
     data_.headers.insert_or_assign(header.name(), std::move(header));
 }
 
 template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::setHeader(HttpHeader::NameCode code, std::string value)
+void HttpOutgoingMessageBase<DataType>::setHeader(HttpHeader::NameCode code, std::string value)
 {
     HttpHeader header(code, std::move(value));
     data_.headers.insert_or_assign(header.name(), std::move(header));
 }
 
 template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::setHeader(HttpHeader header)
+void HttpOutgoingMessageBase<DataType>::setHeader(HttpHeader header)
 {
     data_.headers.insert_or_assign(header.name(), std::move(header));
 }
 
 template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::decideTransferMode(std::optional<size_t> lengthHint)
+void HttpOutgoingMessageBase<DataType>::setBody(std::string body)
 {
-    if (bodyWriter_)
-        return;
+    body_ = std::move(body);
+    bodyStream_ = nullptr;
+}
 
-    if (lengthHint.has_value())
-    {
-        setHeader(HttpHeader::NameCode::ContentLength, std::to_string(*lengthHint));
-        transferMode_ = TransferMode::ContentLength;
-        bodyWriter_ = BodyWriter::create(TransferMode::ContentLength, stream_, *lengthHint);
-        return;
-    }
+template <typename DataType>
+void HttpOutgoingMessageBase<DataType>::setBody(const char * data, size_t len)
+{
+    body_ = std::string(data, len);
+    bodyStream_ = nullptr;
+}
 
-    auto it = data_.headers.find(HttpHeader::Name::ContentLength_L);
-    if (it != data_.headers.end())
-    {
-        size_t contentLength = std::stoull(it->second.value());
-        transferMode_ = TransferMode::ContentLength;
-        bodyWriter_ = BodyWriter::create(TransferMode::ContentLength, stream_, contentLength);
-        return;
-    }
+template <typename DataType>
+void HttpOutgoingMessageBase<DataType>::setBody(BodyStream bodyStream)
+{
+    bodyStream_ = std::move(bodyStream);
+}
 
-    it = data_.headers.find(HttpHeader::Name::TransferEncoding_L);
-    if (it != data_.headers.end() && it->second.value().find("chunked") != std::string::npos)
-    {
-        transferMode_ = TransferMode::Chunked;
-        bodyWriter_ = BodyWriter::create(TransferMode::Chunked, stream_);
-        return;
-    }
+template <typename DataType>
+Task<> HttpOutgoingMessageBase<DataType>::flush()
+{
+    if (startSending_)
+        co_return;
+    startSending_ = true;
 
-    if constexpr (std::is_same_v<DataType, HttpResponse>)
+    std::unique_ptr<BodyWriter> bodyWriter;
+    if (bodyStream_)
     {
         if (data_.version == Version::kHttp10)
         {
             // HTTP/1.0 does not support chunked; fall back to close-delimited
-            data_.shouldClose = true;
             transferMode_ = TransferMode::UntilClose;
-            bodyWriter_ = BodyWriter::create(TransferMode::UntilClose, stream_);
-            return;
+            bodyWriter = BodyWriter::create(TransferMode::UntilClose, stream_);
+            if constexpr (std::is_same_v<DataType, HttpResponse>)
+                data_.shouldClose = true;
+        }
+        else
+        {
+            transferMode_ = TransferMode::Chunked;
+            auto it = data_.headers.find(HttpHeader::Name::ContentLength_L);
+            if (it != data_.headers.end())
+                data_.headers.erase(it);
+            setHeader(HttpHeader::NameCode::TransferEncoding, "chunked");
+            bodyWriter = BodyWriter::create(TransferMode::Chunked, stream_);
         }
     }
+    else
+    {
+        transferMode_ = TransferMode::ContentLength;
+        setHeader(HttpHeader::NameCode::ContentLength, std::to_string(body_.size()));
+    }
 
-    setHeader(HttpHeader::NameCode::TransferEncoding, "chunked");
-    transferMode_ = TransferMode::Chunked;
-    bodyWriter_ = BodyWriter::create(TransferMode::Chunked, stream_);
+    std::string buf;
+    buf.reserve(32 + data_.headers.size() * 32 + body_.size());
+    buildHeaders(buf);
+    buf.append("\r\n");
+
+    if (prevFuture_)
+        co_await prevFuture_->get();
+
+    if (!bodyStream_)
+    {
+        // TODO: writev
+        buf.append(body_);
+        co_await stream_->write(buf.data(), buf.size());
+    }
+    else
+    {
+        // send headers
+        co_await stream_->write(buf.data(), buf.size());
+        // send body
+        while (true)
+        {
+            auto piece = co_await bodyStream_();
+            if (!piece.empty())
+            {
+                co_await bodyWriter->write(piece);
+            }
+            else
+            {
+                co_await bodyWriter->end();
+                break;
+            }
+        }
+    }
+    finishedPromise_.set_value();
+    co_return;
 }
 
 template <typename DataType>
-void HttpOutgoingStreamBase<DataType>::buildHeaders(std::string & buf)
+void HttpOutgoingMessageBase<DataType>::buildHeaders(std::string & buf)
 {
     if constexpr (std::is_same_v<DataType, HttpRequest>)
     {
@@ -180,112 +223,9 @@ void HttpOutgoingStreamBase<DataType>::buildHeaders(std::string & buf)
     }
 }
 
-template <typename DataType>
-Task<> HttpOutgoingStreamBase<DataType>::write(const char * data, size_t len)
-{
-    bodyLength_ += len;
-    if (ignoreBody_)
-    {
-        co_return;
-    }
-
-    if (!bodyWriter_)
-        decideTransferMode();
-
-    if (!headersSent_)
-        co_await writeHeaders();
-
-    co_await bodyWriter_->write(std::string_view(data, len));
-}
-
-template <typename DataType>
-Task<> HttpOutgoingStreamBase<DataType>::write(std::string_view data)
-{
-    co_await write(data.data(), data.size());
-}
-
-template <typename DataType>
-Task<> HttpOutgoingStreamBase<DataType>::end()
-{
-    if (!headersSent_)
-    {
-        if (!data_.headers.contains(HttpHeader::Name::ContentLength_L))
-        {
-            setHeader(HttpHeader::NameCode::ContentLength, std::to_string(bodyLength_));
-        }
-        co_await writeHeaders();
-    }
-    if (bodyWriter_)
-        co_await bodyWriter_->end();
-    finishedPromise_.set_value();
-}
-
-template <typename DataType>
-Task<> HttpOutgoingStreamBase<DataType>::end(std::string_view data)
-{
-    constexpr size_t kMaxMergedBodySize = 32 * 1024; // 32KB
-
-    bodyLength_ += data.size();
-    if (ignoreBody_)
-    {
-        co_await end();
-        co_return;
-    }
-
-    if (data.empty())
-    {
-        co_await end();
-        co_return;
-    }
-
-    if (!bodyWriter_)
-        decideTransferMode(data.size());
-
-    if (!headersSent_)
-    {
-        // Optimization: merge headers and body for small responses to reduce syscalls
-        if (transferMode_ == TransferMode::ContentLength && data.size() <= kMaxMergedBodySize)
-        {
-            headersSent_ = true;
-            if (prevFuture_)
-                co_await prevFuture_->get();
-            std::string response;
-            response.reserve(256 + data.size());
-            buildHeaders(response);
-            response.append("\r\n").append(data);
-            co_await stream_->write(response.c_str(), response.size());
-            finishedPromise_.set_value();
-            co_return;
-        }
-
-        co_await writeHeaders();
-    }
-
-    co_await bodyWriter_->write(data);
-    co_await bodyWriter_->end();
-    finishedPromise_.set_value();
-}
-
-template <typename DataType>
-Task<> HttpOutgoingStreamBase<DataType>::writeHeaders()
-{
-    if (headersSent_)
-        co_return;
-    headersSent_ = true;
-
-    if (prevFuture_)
-        co_await prevFuture_->get();
-
-    std::string headers;
-    headers.reserve(256);
-    buildHeaders(headers);
-    headers.append("\r\n");
-    co_await stream_->write(headers.c_str(), headers.size());
-}
-
 // TODO: move to http helpers
 template <typename DataType>
-const char * HttpOutgoingStreamBase<DataType>::getDefaultReason(uint16_t code)
+const char * HttpOutgoingMessageBase<DataType>::getDefaultReason(uint16_t code)
 {
     switch (static_cast<StatusCode>(code))
     {
@@ -419,8 +359,8 @@ const char * HttpOutgoingStreamBase<DataType>::getDefaultReason(uint16_t code)
 }
 
 // Explicit instantiations
-template class HttpOutgoingStreamBase<HttpRequest>;
-template class HttpOutgoingStreamBase<HttpResponse>;
+template class HttpOutgoingMessageBase<HttpRequest>;
+template class HttpOutgoingMessageBase<HttpResponse>;
 
 } // namespace nitrocoro::http::detail
 
@@ -428,20 +368,20 @@ namespace nitrocoro::http
 {
 
 // ============================================================================
-// HttpOutgoingStream<HttpRequest> Implementation
+// HttpOutgoingMessage<HttpRequest> Implementation
 // ============================================================================
 
 // ============================================================================
-// HttpOutgoingStream<HttpResponse> Implementation
+// HttpOutgoingMessage<HttpResponse> Implementation
 // ============================================================================
 
-void HttpOutgoingStream<HttpResponse>::setStatus(int code, const std::string & reason)
+void HttpOutgoingMessage<HttpResponse>::setStatus(int code, const std::string & reason)
 {
     data_.statusCode = code;
-    data_.statusReason = reason.empty() ? detail::HttpOutgoingStreamBase<HttpResponse>::getDefaultReason(code) : reason;
+    data_.statusReason = reason.empty() ? detail::HttpOutgoingMessageBase<HttpResponse>::getDefaultReason(code) : reason;
 }
 
-void HttpOutgoingStream<HttpResponse>::setStatus(StatusCode code, const std::string & reason)
+void HttpOutgoingMessage<HttpResponse>::setStatus(StatusCode code, const std::string & reason)
 {
     setStatus(static_cast<uint16_t>(code), reason);
 }

@@ -139,8 +139,8 @@ NITRO_TEST(ws_echo)
 NITRO_TEST(ws_http_coexist)
 {
     http::HttpServer server(0);
-    server.route("/ping", { "GET" }, [](auto, auto resp) -> Task<> {
-        co_await resp->end("pong");
+    server.route("/ping", { "GET" }, [](auto, auto resp) {
+        resp->setBody("pong");
     });
     WsServer ws;
     ws.route("/ws", [](WsConnection & conn) -> Task<> {

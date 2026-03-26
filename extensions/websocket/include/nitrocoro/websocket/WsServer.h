@@ -26,7 +26,7 @@ public:
 
 private:
     Task<bool> handleUpgrade(http::HttpIncomingStream<http::HttpRequest> & req,
-                             http::HttpOutgoingStream<http::HttpResponse> & resp,
+                             http::HttpOutgoingMessage<http::HttpResponse> & resp,
                              io::StreamPtr stream);
 
     std::map<std::string, Handler> routes_;

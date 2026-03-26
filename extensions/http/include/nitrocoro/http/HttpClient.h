@@ -21,7 +21,7 @@ namespace nitrocoro::http
 
 struct HttpClientSession
 {
-    HttpOutgoingStream<HttpRequest> request;
+    HttpOutgoingMessage<HttpRequest> request;
     Future<HttpIncomingStream<HttpResponse>> response;
 };
 

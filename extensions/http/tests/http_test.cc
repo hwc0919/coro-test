@@ -30,8 +30,8 @@ static SharedFuture<> start_server(HttpServer & server)
 NITRO_TEST(http_get_hello)
 {
     HttpServer server(0);
-    server.route("/hello", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("hello world");
+    server.route("/hello", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("hello world");
     });
     co_await start_server(server);
 
@@ -49,7 +49,7 @@ NITRO_TEST(http_post_echo)
     HttpServer server(0);
     server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
     co_await start_server(server);
 
@@ -79,8 +79,8 @@ NITRO_TEST(http_404)
 NITRO_TEST(http_query_params)
 {
     HttpServer server(0);
-    server.route("/greet", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("Hello, " + req->getQuery("name") + "!");
+    server.route("/greet", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("Hello, " + req->getQuery("name") + "!");
     });
     co_await start_server(server);
 
@@ -97,10 +97,10 @@ NITRO_TEST(http_query_params)
 NITRO_TEST(http_headers)
 {
     HttpServer server(0);
-    server.route("/headers", { "GET" }, [](auto req, auto resp) -> Task<> {
+    server.route("/headers", { "GET" }, [](auto req, auto resp) {
         const auto & ua = req->getHeader(HttpHeader::NameCode::UserAgent);
         resp->setHeader(HttpHeader::NameCode::ContentType, "text/plain");
-        co_await resp->end(ua.empty() ? "no-ua" : "has-ua");
+        resp->setBody(ua.empty() ? "no-ua" : "has-ua");
     });
     co_await start_server(server);
 
@@ -136,8 +136,8 @@ NITRO_TEST(http_multiple_requests)
 {
     HttpServer server(0);
     int count = 0;
-    server.route("/count", { "GET" }, [&count](auto req, auto resp) -> Task<> {
-        co_await resp->end(std::to_string(++count));
+    server.route("/count", { "GET" }, [&count](auto req, auto resp) {
+        resp->setBody(std::to_string(++count));
     });
     co_await start_server(server);
 
@@ -157,8 +157,8 @@ NITRO_TEST(http_multiple_requests)
 NITRO_TEST(router_shared_across_servers)
 {
     auto router = std::make_shared<HttpRouter>();
-    router->addRoute("/ping", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("pong");
+    router->addRoute("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("pong");
     });
 
     HttpServer s1({ .router = router });
@@ -182,8 +182,8 @@ NITRO_TEST(router_shared_across_servers)
 NITRO_TEST(router_method_mismatch_405)
 {
     HttpServer server(0);
-    server.route("/data", { "POST" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/data", { "POST" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -198,8 +198,8 @@ NITRO_TEST(router_method_mismatch_405)
 NITRO_TEST(http_path_percent_encoding)
 {
     HttpServer server(0);
-    server.route("/hello world", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end(req->path());
+    server.route("/hello world", { "GET" }, [](auto req, auto resp) {
+        resp->setBody(req->path());
     });
     co_await start_server(server);
 
@@ -216,8 +216,8 @@ NITRO_TEST(http_path_percent_encoding)
 NITRO_TEST(http_query_decode)
 {
     HttpServer server(0);
-    server.route("/q", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end(req->getQuery("a") + "|" + req->getQuery("b"));
+    server.route("/q", { "GET" }, [](auto req, auto resp) {
+        resp->setBody(req->getQuery("a") + "|" + req->getQuery("b"));
     });
     co_await start_server(server);
 
@@ -234,8 +234,8 @@ NITRO_TEST(http_query_decode)
 NITRO_TEST(http_path_invalid_encoding)
 {
     HttpServer server(0);
-    server.route("/foo%zz", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end(req->path());
+    server.route("/foo%zz", { "GET" }, [](auto req, auto resp) {
+        resp->setBody(req->path());
     });
     co_await start_server(server);
 
@@ -252,8 +252,8 @@ NITRO_TEST(http_path_invalid_encoding)
 NITRO_TEST(http_head)
 {
     HttpServer server(0);
-    server.route("/data", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("hello world");
+    server.route("/data", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("hello world");
     });
     co_await start_server(server);
 
@@ -276,8 +276,8 @@ NITRO_TEST(http_head)
 NITRO_TEST(http_options_registered_path)
 {
     HttpServer server(0);
-    server.route("/data", { "GET", "POST" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/data", { "GET", "POST" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -311,11 +311,11 @@ NITRO_TEST(http_options_not_found)
 NITRO_TEST(http_handler_throws)
 {
     HttpServer server(0);
-    server.route("/throw", { "GET" }, [](auto req, auto resp) -> Task<> {
+    server.route("/throw", { "GET" }, [](auto req, auto resp) {
         throw std::runtime_error("handler error");
     });
-    server.route("/ok", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/ok", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -338,10 +338,10 @@ NITRO_TEST(http_chunked_keepalive)
     HttpServer server(0);
     server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
-    server.route("/ping", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("pong");
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("pong");
     });
     co_await start_server(server);
 
@@ -411,7 +411,7 @@ NITRO_TEST(http_expect_100_continue)
     HttpServer server(0);
     server.route("/upload", { "POST" }, [](auto req, auto resp) -> Task<> {
         auto complete = co_await req->toCompleteRequest();
-        co_await resp->end(complete.body());
+        resp->setBody(complete.body());
     });
     co_await start_server(server);
 
@@ -465,9 +465,9 @@ NITRO_TEST(http_expect_100_continue)
 NITRO_TEST(http_expect_100_continue_rejected)
 {
     HttpServer server(0);
-    server.route("/upload", { "POST" }, [](auto req, auto resp) -> Task<> {
+    server.route("/upload", { "POST" }, [](auto req, auto resp) {
         resp->setStatus(StatusCode::k413RequestEntityTooLarge);
-        co_await resp->end("Too Large");
+        resp->setBody("Too Large");
     });
     co_await start_server(server);
 
@@ -518,8 +518,8 @@ NITRO_TEST(http_expect_100_continue_rejected)
 NITRO_TEST(http_expect_unknown)
 {
     HttpServer server(0);
-    server.route("/upload", { "POST" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end("ok");
+    server.route("/upload", { "POST" }, [](auto req, auto resp) {
+        resp->setBody("ok");
     });
     co_await start_server(server);
 
@@ -552,8 +552,8 @@ NITRO_TEST(http_date_header)
 
     {
         HttpServer server(0);
-        server.route("/", { "GET" }, [](auto req, auto resp) -> Task<> {
-            co_await resp->end("ok");
+        server.route("/", { "GET" }, [](auto req, auto resp) {
+            resp->setBody("ok");
         });
         co_await start_server(server);
 
@@ -569,8 +569,8 @@ NITRO_TEST(http_date_header)
 
     {
         HttpServer server({ .send_date_header = false });
-        server.route("/", { "GET" }, [](auto req, auto resp) -> Task<> {
-            co_await resp->end("ok");
+        server.route("/", { "GET" }, [](auto req, auto resp) {
+            resp->setBody("ok");
         });
         co_await start_server(server);
 
@@ -584,9 +584,9 @@ NITRO_TEST(http_date_header)
 NITRO_TEST(http_path_params)
 {
     HttpServer server(0);
-    server.route("/users/:id/posts/:pid", { "GET" }, [](auto req, auto resp) -> Task<> {
+    server.route("/users/:id/posts/:pid", { "GET" }, [](auto req, auto resp) {
         const auto & params = req->pathParams();
-        co_await resp->end(params.at("id") + "," + params.at("pid"));
+        resp->setBody(params.at("id") + "," + params.at("pid"));
     });
     co_await start_server(server);
 
@@ -603,8 +603,8 @@ NITRO_TEST(http_path_params)
 NITRO_TEST(http_route_regex)
 {
     HttpServer server(0);
-    server.routeRegex(R"(/items/(\d+))", { "GET" }, [](auto req, auto resp) -> Task<> {
-        co_await resp->end(req->pathParams().at("$1"));
+    server.routeRegex(R"(/items/(\d+))", { "GET" }, [](auto req, auto resp) {
+        resp->setBody(req->pathParams().at("$1"));
     });
     co_await start_server(server);
 

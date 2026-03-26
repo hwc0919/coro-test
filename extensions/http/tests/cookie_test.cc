@@ -270,14 +270,14 @@ NITRO_TEST(cookie_integration_server_set)
     uint16_t port = 19901;
     Scheduler::current()->spawn([port]() -> Task<> {
         HttpServer server(port);
-        server.route("/set", { "GET" }, [](auto req, auto resp) -> Task<> {
+        server.route("/set", { "GET" }, [](auto req, auto resp) {
             resp->addCookie(Cookie{
                 .name = "session",
                 .value = "abc123",
                 .path = "/",
                 .httpOnly = true,
             });
-            co_await resp->end("ok");
+            resp->setBody("ok");
         });
         co_await server.start();
     });
@@ -300,8 +300,8 @@ NITRO_TEST(cookie_integration_client_send)
     uint16_t port = 19902;
     Scheduler::current()->spawn([port]() -> Task<> {
         HttpServer server(port);
-        server.route("/echo", { "GET" }, [](auto req, auto resp) -> Task<> {
-            co_await resp->end(req->getCookie("token"));
+        server.route("/echo", { "GET" }, [](auto req, auto resp) {
+            resp->setBody(req->getCookie("token"));
         });
         co_await server.start();
     });
@@ -312,7 +312,7 @@ NITRO_TEST(cookie_integration_client_send)
     auto [req, respFuture] = co_await client.stream(methods::Get,
                                                     "http://127.0.0.1:" + std::to_string(port) + "/echo");
     req.setCookie("token", "secret");
-    co_await req.end();
+    co_await req.flush();
 
     auto resp = co_await respFuture.get();
     auto complete = co_await resp.toCompleteResponse();
@@ -326,11 +326,10 @@ NITRO_TEST(cookie_integration_multiple_set_cookies)
     uint16_t port = 19903;
     Scheduler::current()->spawn([port]() -> Task<> {
         HttpServer server(port);
-        server.route("/multi", { "GET" }, [](auto req, auto resp) -> Task<> {
+        server.route("/multi", { "GET" }, [](auto req, auto resp) {
             resp->addCookie(Cookie{ .name = "a", .value = "1" });
             resp->addCookie(Cookie{ .name = "b", .value = "2", .secure = true });
             resp->addCookie(Cookie{ .name = "c", .value = "3", .sameSite = Cookie::SameSite::Strict });
-            co_await resp->end();
         });
         co_await server.start();
     });

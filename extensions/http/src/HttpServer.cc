@@ -180,10 +180,11 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         {
             NITRO_DEBUG("Bad request: %s", parsed.errorMessage.c_str());
             Promise<> p(scheduler_);
-            HttpOutgoingStream<HttpResponse> errResp(stream, std::move(p), std::move(prevFuture), false, config_.send_date_header);
+            HttpOutgoingMessage<HttpResponse> errResp(stream, std::move(p), std::move(prevFuture), false, config_.send_date_header);
             errResp.setStatus(StatusCode::k400BadRequest);
             errResp.setCloseConnection(true);
-            co_await errResp.end("Bad Request");
+            errResp.setBody("Bad Request");
+            co_await errResp.flush();
             co_await stream->shutdown();
             co_return;
         }
@@ -213,7 +214,8 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         if (method == methods::_Invalid)
         {
             response->setStatus(StatusCode::k400BadRequest);
-            co_await response->end("Bad Request");
+            response->setBody("Bad Request");
+            co_await response->flush();
             if (!bodyReader->isComplete())
                 co_await bodyReader->drain();
             if (!keepAlive)
@@ -235,19 +237,21 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
                 {
                     response->setStatus(StatusCode::k200OK);
                     response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
-                    co_await response->end();
+                    co_await response->flush();
                 }
                 else
                 {
                     response->setStatus(StatusCode::k405MethodNotAllowed);
                     response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
-                    co_await response->end("Method Not Allowed");
+                    response->setBody("Method Not Allowed");
+                    co_await response->flush();
                 }
             }
             else
             {
                 response->setStatus(StatusCode::k404NotFound);
-                co_await response->end("Not Found");
+                response->setBody("Not Found");
+                co_await response->flush();
             }
         }
         else
@@ -259,7 +263,8 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
                 if (expect != "100-continue")
                 {
                     response->setStatus(StatusCode::k417ExpectationFailed);
-                    co_await response->end("Expectation Failed");
+                    response->setBody("Expectation Failed");
+                    co_await response->flush();
                     if (!bodyReader->isComplete())
                         co_await bodyReader->drain();
                     if (!keepAlive)
@@ -290,6 +295,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
                     }
                 };
                 co_await invokeChain(invokeChain, 0, request, response);
+                co_await response->flush();
             }
             catch (const std::exception & ex)
             {

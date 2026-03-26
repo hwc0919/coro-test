@@ -1,6 +1,6 @@
 /**
  * @file http_stream_test.cc
- * @brief Test streaming HTTP client with echo server
+ * @brief Tests for streaming HTTP request and response bodies
  */
 #include <nitrocoro/http/HttpClient.h>
 #include <nitrocoro/http/HttpServer.h>
@@ -8,100 +8,69 @@
 
 using namespace nitrocoro;
 using namespace nitrocoro::http;
-using namespace std::chrono_literals;
 
-Task<> echo_server(uint16_t port)
+static SharedFuture<> start_server(HttpServer & server)
 {
-    HttpServer server(port);
-
-    server.route("/stream-echo", { "POST" }, [](auto req, auto resp) -> Task<> {
-        resp->setStatus(StatusCode::k200OK);
-        resp->setHeader(HttpHeader::NameCode::ContentType, "text/plain");
-        auto ctl = req->getHeader(HttpHeader::NameCode::ContentLength);
-        if (!ctl.empty())
-            resp->setHeader(HttpHeader::NameCode::ContentLength, std::string{ ctl });
-
-        co_await resp->write({});
-
-        while (true)
-        {
-            auto chunk = co_await req->read(1024);
-            if (chunk.empty())
-                break;
-            co_await resp->write(chunk);
-        }
-
-        co_await resp->end();
-    });
-
-    co_await server.start();
+    Scheduler::current()->spawn([&server]() -> Task<> { co_await server.start(); });
+    return server.started();
 }
 
-Task<> run_stream_test(uint16_t port, bool useChunk, nitrocoro::test::TestCtxPtr TEST_CTX)
+/** Server uses setBody(BodyStream) to send a chunked response; client receives all chunks joined. */
+NITRO_TEST(server_streaming_response)
 {
-    co_await sleep(10ms);
+    HttpServer server(0);
+
+    server.route("/stream", { "GET" }, [](auto req, auto resp) {
+        std::vector<std::string> chunks = { "hello", " ", "world" };
+        size_t i = 0;
+        resp->setBody([chunks, i]() mutable -> Task<std::string> {
+            if (i < chunks.size())
+                co_return chunks[i++];
+            co_return std::string{};
+        });
+    });
+    co_await start_server(server);
 
     HttpClient client;
-    auto [req, respFuture] = co_await client.stream(methods::Post, "http://127.0.0.1:" + std::to_string(port) + "/stream-echo");
+    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/stream");
+    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp.body(), "hello world");
 
-    std::vector<std::string> reqChunks, respChunks;
+    co_await server.stop();
+}
 
-    Promise<> finishPromise{ Scheduler::current() };
-    Scheduler::current()->spawn([&]() -> Task<> {
-        auto response = co_await respFuture.get();
-        while (true)
-        {
-            try
-            {
-                auto chunk = co_await response.read(1024);
-                if (chunk.empty())
-                    break;
-                respChunks.emplace_back(chunk);
-            }
-            catch (...)
-            {
-                break;
-            }
-        }
-        finishPromise.set_value();
+/** Client uses stream() with a streaming request body; server echoes the complete body back. */
+NITRO_TEST(client_streaming_request)
+{
+    HttpServer server(0);
+
+    server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
+        auto complete = co_await req->toCompleteRequest();
+        resp->setBody(complete.body());
     });
+    co_await start_server(server);
 
     std::string data = "Hello World from streaming client!";
-    if (useChunk)
-        req.setHeader(HttpHeader::NameCode::TransferEncoding, "chunked");
-    else
-        req.setHeader(HttpHeader::NameCode::ContentLength, std::to_string(data.size()));
+    std::vector<std::string> chunks = { data.substr(0, 6), data.substr(6, 6), data.substr(12) };
 
-    size_t pos = 0, chunkSize = 6;
-    while (pos < data.size())
-    {
-        size_t len = std::min(chunkSize, data.size() - pos);
-        co_await sleep(10ms);
-        co_await req.write(data.substr(pos, len));
-        reqChunks.push_back(data.substr(pos, len));
-        pos += len;
-    }
+    HttpClient client;
+    auto [req, respFuture] = co_await client.stream(
+        methods::Post, "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/echo");
 
-    co_await req.end();
-    co_await finishPromise.get_future().get();
+    size_t i = 0;
+    req.setBody([chunks, i]() mutable -> Task<std::string> {
+        if (i < chunks.size())
+            co_return chunks[i++];
+        co_return std::string{};
+    });
+    co_await req.flush();
 
-    NITRO_REQUIRE_EQ(reqChunks.size(), respChunks.size());
-    for (size_t i = 0; i < reqChunks.size(); ++i)
-        NITRO_CHECK_EQ(reqChunks[i], respChunks[i]);
-}
+    auto response = co_await respFuture.get();
+    auto complete = co_await response.toCompleteResponse();
+    NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(complete.body(), data);
 
-NITRO_TEST(stream_echo_chunked)
-{
-    uint16_t port = 9998;
-    Scheduler::current()->spawn([port]() -> Task<> { co_await echo_server(port); });
-    co_await run_stream_test(port, true, TEST_CTX);
-}
-
-NITRO_TEST(stream_echo_content_length)
-{
-    uint16_t port = 9999;
-    Scheduler::current()->spawn([port]() -> Task<> { co_await echo_server(port); });
-    co_await run_stream_test(port, false, TEST_CTX);
+    co_await server.stop();
 }
 
 int main(int argc, char ** argv)

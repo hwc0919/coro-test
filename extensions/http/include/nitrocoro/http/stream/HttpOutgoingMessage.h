@@ -1,5 +1,5 @@
 /**
- * @file HttpOutgoingStream.h
+ * @file HttpOutgoingMessage.h
  * @brief HTTP outgoing stream for writing requests and responses
  */
 #pragma once
@@ -25,14 +25,16 @@ namespace detail
 {
 
 template <typename DataType>
-class HttpOutgoingStreamBase
+class HttpOutgoingMessageBase
 {
 public:
-    explicit HttpOutgoingStreamBase(io::StreamPtr stream,
-                                    Promise<> finishedPromise,
-                                    std::optional<Future<>> prevFuture = std::nullopt,
-                                    bool ignoreBody = false,
-                                    bool send_date_header = true)
+    using BodyStream = std::function<Task<std::string>()>;
+
+    explicit HttpOutgoingMessageBase(io::StreamPtr stream,
+                                     Promise<> finishedPromise,
+                                     std::optional<Future<>> prevFuture = std::nullopt,
+                                     bool ignoreBody = false,
+                                     bool send_date_header = true)
         : stream_(std::move(stream))
         , finishedPromise_(std::move(finishedPromise))
         , prevFuture_(std::move(prevFuture))
@@ -44,22 +46,23 @@ public:
     void setHeader(std::string_view name, std::string value);
     void setHeader(HttpHeader::NameCode code, std::string value);
     void setHeader(HttpHeader header);
-    Task<> write(const char * data, size_t len);
-    Task<> write(std::string_view data);
-    Task<> end();
-    Task<> end(std::string_view data);
+
+    void setBody(std::string body);
+    void setBody(const char * data, size_t len);
+    void setBody(BodyStream bodyStream);
+    Task<> flush();
 
 protected:
     static const char * getDefaultReason(uint16_t code);
-    Task<> writeHeaders();
     void buildHeaders(std::string & buf);
-    void decideTransferMode(std::optional<size_t> lengthHint = std::nullopt);
 
     DataType data_;
+    std::string body_;
+    BodyStream bodyStream_;
+
     io::StreamPtr stream_;
-    bool headersSent_{ false };
+    bool startSending_{ false };
     TransferMode transferMode_{ TransferMode::Chunked };
-    std::unique_ptr<BodyWriter> bodyWriter_;
     Promise<> finishedPromise_;
     std::optional<Future<>> prevFuture_;
     bool ignoreBody_{ false };
@@ -71,27 +74,27 @@ protected:
 
 // Forward declaration
 template <typename T>
-class HttpOutgoingStream;
+class HttpOutgoingMessage;
 
 // ============================================================================
-// HttpOutgoingStream<HttpRequest> - Write HTTP Request
+// HttpOutgoingMessage<HttpRequest> - Write HTTP Request
 // ============================================================================
 
 template <>
-class HttpOutgoingStream<HttpRequest>
-    : public detail::HttpOutgoingStreamBase<HttpRequest>
+class HttpOutgoingMessage<HttpRequest>
+    : public detail::HttpOutgoingMessageBase<HttpRequest>
 {
 public:
-    explicit HttpOutgoingStream(io::StreamPtr stream,
-                                Promise<> finishedPromise,
-                                std::optional<Future<>> prevFuture = std::nullopt)
-        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream),
-                                                      std::move(finishedPromise),
-                                                      std::move(prevFuture))
+    explicit HttpOutgoingMessage(io::StreamPtr stream,
+                                 Promise<> finishedPromise,
+                                 std::optional<Future<>> prevFuture = std::nullopt)
+        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream),
+                                                       std::move(finishedPromise),
+                                                       std::move(prevFuture))
     {
     }
-    explicit HttpOutgoingStream(io::StreamPtr stream)
-        : detail::HttpOutgoingStreamBase<HttpRequest>(std::move(stream), Promise<>())
+    explicit HttpOutgoingMessage(io::StreamPtr stream)
+        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream), Promise<>())
     {
     }
 
@@ -103,24 +106,24 @@ public:
 };
 
 // ============================================================================
-// HttpOutgoingStream<HttpResponse> - Write HTTP Response
+// HttpOutgoingMessage<HttpResponse> - Write HTTP Response
 // ============================================================================
 
 template <>
-class HttpOutgoingStream<HttpResponse>
-    : public detail::HttpOutgoingStreamBase<HttpResponse>
+class HttpOutgoingMessage<HttpResponse>
+    : public detail::HttpOutgoingMessageBase<HttpResponse>
 {
 public:
-    explicit HttpOutgoingStream(io::StreamPtr stream,
-                                Promise<> finishedPromise,
-                                std::optional<Future<>> prevFuture = std::nullopt,
-                                bool ignoreBody = false,
-                                bool send_date_header = true)
-        : detail::HttpOutgoingStreamBase<HttpResponse>(std::move(stream),
-                                                       std::move(finishedPromise),
-                                                       std::move(prevFuture),
-                                                       ignoreBody,
-                                                       send_date_header)
+    explicit HttpOutgoingMessage(io::StreamPtr stream,
+                                 Promise<> finishedPromise,
+                                 std::optional<Future<>> prevFuture = std::nullopt,
+                                 bool ignoreBody = false,
+                                 bool send_date_header = true)
+        : detail::HttpOutgoingMessageBase<HttpResponse>(std::move(stream),
+                                                        std::move(finishedPromise),
+                                                        std::move(prevFuture),
+                                                        ignoreBody,
+                                                        send_date_header)
     {
     }
 
