@@ -160,49 +160,49 @@ NITRO_TEST(cookie_roundtrip)
 NITRO_TEST(cookie_request_parse_single)
 {
     HttpParser<HttpRequest> parser;
-    parser.parseLine("GET / HTTP/1.1");
-    parser.parseLine("Cookie: session=abc123");
-    parser.parseLine("");
+    parser.feedLine("GET / HTTP/1.1");
+    parser.feedLine("Cookie: session=abc123");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.at("session"), "abc123");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("session"), "abc123");
     co_return;
 }
 
 NITRO_TEST(cookie_request_parse_multiple)
 {
     HttpParser<HttpRequest> parser;
-    parser.parseLine("GET / HTTP/1.1");
-    parser.parseLine("Cookie: session=abc123; user=john; theme=dark");
-    parser.parseLine("");
+    parser.feedLine("GET / HTTP/1.1");
+    parser.feedLine("Cookie: session=abc123; user=john; theme=dark");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.at("session"), "abc123");
-    NITRO_CHECK_EQ(result.message.cookies.at("user"), "john");
-    NITRO_CHECK_EQ(result.message.cookies.at("theme"), "dark");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("session"), "abc123");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("user"), "john");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("theme"), "dark");
     co_return;
 }
 
 NITRO_TEST(cookie_request_parse_trim_spaces)
 {
     HttpParser<HttpRequest> parser;
-    parser.parseLine("GET / HTTP/1.1");
-    parser.parseLine("Cookie:  session = abc123 ;  user = john ");
-    parser.parseLine("");
+    parser.feedLine("GET / HTTP/1.1");
+    parser.feedLine("Cookie:  session = abc123 ;  user = john ");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.at("session"), "abc123");
-    NITRO_CHECK_EQ(result.message.cookies.at("user"), "john");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("session"), "abc123");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("user"), "john");
     co_return;
 }
 
 NITRO_TEST(cookie_request_accessor)
 {
     HttpParser<HttpRequest> parser;
-    parser.parseLine("GET / HTTP/1.1");
-    parser.parseLine("Cookie: a=1; b=2");
-    parser.parseLine("");
-    HttpRequestAccessor accessor(parser.extractResult().message);
+    parser.feedLine("GET / HTTP/1.1");
+    parser.feedLine("Cookie: a=1; b=2");
+    parser.feedLine("");
+    HttpRequestAccessor accessor(std::get<HttpRequest>(parser.extractResult()));
     NITRO_CHECK_EQ(accessor.getCookie("a"), "1");
     NITRO_CHECK_EQ(accessor.getCookie("b"), "2");
     NITRO_CHECK(accessor.getCookie("missing").empty());
@@ -214,13 +214,13 @@ NITRO_TEST(cookie_request_accessor)
 NITRO_TEST(cookie_response_parser_basic)
 {
     HttpParser<HttpResponse> parser;
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Set-Cookie: session=abc123; Path=/; HttpOnly");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Set-Cookie: session=abc123; Path=/; HttpOnly");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.size(), 1);
-    const auto & c = result.message.cookies[0];
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies.size(), 1);
+    const auto & c = std::get<HttpResponse>(result).cookies[0];
     NITRO_CHECK_EQ(c.name, "session");
     NITRO_CHECK_EQ(c.value, "abc123");
     NITRO_CHECK_EQ(c.path, "/");
@@ -232,13 +232,13 @@ NITRO_TEST(cookie_response_parser_basic)
 NITRO_TEST(cookie_response_parser_all_attributes)
 {
     HttpParser<HttpResponse> parser;
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Set-Cookie: id=42; Domain=example.com; Path=/app; Max-Age=3600; Secure; HttpOnly; SameSite=Strict");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Set-Cookie: id=42; Domain=example.com; Path=/app; Max-Age=3600; Secure; HttpOnly; SameSite=Strict");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.size(), 1);
-    const auto & c = result.message.cookies[0];
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies.size(), 1);
+    const auto & c = std::get<HttpResponse>(result).cookies[0];
     NITRO_CHECK_EQ(c.name, "id");
     NITRO_CHECK_EQ(c.value, "42");
     NITRO_CHECK_EQ(c.domain, "example.com");
@@ -253,13 +253,13 @@ NITRO_TEST(cookie_response_parser_all_attributes)
 NITRO_TEST(cookie_response_parser_multiple)
 {
     HttpParser<HttpResponse> parser;
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Set-Cookie: a=1");
-    parser.parseLine("Set-Cookie: b=2");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Set-Cookie: a=1");
+    parser.feedLine("Set-Cookie: b=2");
+    parser.feedLine("");
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.size(), 2);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies.size(), 2);
     co_return;
 }
 

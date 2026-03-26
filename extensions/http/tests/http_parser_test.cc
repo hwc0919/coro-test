@@ -14,20 +14,20 @@ NITRO_TEST(http_parser_request_basic)
 {
     HttpParser<HttpRequest> parser;
 
-    auto state = parser.parseLine("GET /hello HTTP/1.1");
+    auto state = parser.feedLine("GET /hello HTTP/1.1");
     NITRO_CHECK_EQ(state, HttpParserState::ExpectHeader);
 
-    state = parser.parseLine("Host: example.com");
+    state = parser.feedLine("Host: example.com");
     NITRO_CHECK_EQ(state, HttpParserState::ExpectHeader);
 
-    state = parser.parseLine("");
+    state = parser.feedLine("");
     NITRO_CHECK_EQ(state, HttpParserState::HeaderComplete);
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.method, methods::Get);
-    NITRO_CHECK_EQ(result.message.path, "/hello");
-    NITRO_CHECK_EQ(result.message.version, Version::kHttp11);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).method, methods::Get);
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).path, "/hello");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).version, Version::kHttp11);
     co_return;
 }
 
@@ -35,18 +35,18 @@ NITRO_TEST(http_parser_request_with_query)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /search?q=hello+world&page=1 HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("");
+    parser.feedLine("GET /search?q=hello+world&page=1 HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.path, "/search");
-    NITRO_CHECK_EQ(result.message.query, "q=hello+world&page=1");
-    NITRO_CHECK(result.message.queries.contains("q"));
-    NITRO_CHECK_EQ(result.message.queries.at("q"), "hello world");
-    NITRO_CHECK(result.message.queries.contains("page"));
-    NITRO_CHECK_EQ(result.message.queries.at("page"), "1");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).path, "/search");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).query, "q=hello+world&page=1");
+    NITRO_CHECK(std::get<HttpRequest>(result).queries.contains("q"));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).queries.at("q"), "hello world");
+    NITRO_CHECK(std::get<HttpRequest>(result).queries.contains("page"));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).queries.at("page"), "1");
     co_return;
 }
 
@@ -55,9 +55,11 @@ NITRO_TEST(http_parser_request_query_accessor)
     // queryString() returns raw query
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search?q=hello+world&page=1 HTTP/1.1");
-        parser.parseLine("");
-        HttpRequestAccessor accessor(parser.extractResult().message);
+        parser.feedLine("GET /search?q=hello+world&page=1 HTTP/1.1");
+        parser.feedLine("");
+        NITRO_REQUIRE_EQ(parser.state(), HttpParserState::HeaderComplete);
+        auto message = std::get<HttpRequest>(parser.extractResult());
+        HttpRequestAccessor accessor(message);
         NITRO_CHECK_EQ(accessor.queryString(), "q=hello+world&page=1");
         NITRO_CHECK_EQ(accessor.getQuery("q"), "hello world");
         NITRO_CHECK_EQ(accessor.getQuery("page"), "1");
@@ -66,17 +68,21 @@ NITRO_TEST(http_parser_request_query_accessor)
     // first-wins on duplicate keys
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search?tag=a&tag=b HTTP/1.1");
-        parser.parseLine("");
-        HttpRequestAccessor accessor(parser.extractResult().message);
+        parser.feedLine("GET /search?tag=a&tag=b HTTP/1.1");
+        parser.feedLine("");
+        NITRO_REQUIRE_EQ(parser.state(), HttpParserState::HeaderComplete);
+        auto message = std::get<HttpRequest>(parser.extractResult());
+        HttpRequestAccessor accessor(message);
         NITRO_CHECK_EQ(accessor.getQuery("tag"), "a");
     }
     // no query string
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search HTTP/1.1");
-        parser.parseLine("");
-        HttpRequestAccessor accessor(parser.extractResult().message);
+        parser.feedLine("GET /search HTTP/1.1");
+        parser.feedLine("");
+        NITRO_REQUIRE_EQ(parser.state(), HttpParserState::HeaderComplete);
+        auto message = std::get<HttpRequest>(parser.extractResult());
+        HttpRequestAccessor accessor(message);
         NITRO_CHECK(accessor.queryString().empty());
         NITRO_CHECK(accessor.queries().empty());
     }
@@ -88,10 +94,10 @@ NITRO_TEST(http_parser_multi_queries)
     // basic multi-value
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search?tag=a&tag=b&tag=c HTTP/1.1");
-        parser.parseLine("");
+        parser.feedLine("GET /search?tag=a&tag=b&tag=c HTTP/1.1");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        HttpRequestAccessor accessor(std::move(result.message));
+        HttpRequestAccessor accessor(std::move(std::get<HttpRequest>(result)));
         auto mq = accessor.multiQueries();
         NITRO_CHECK_EQ(mq["tag"].size(), 3);
         NITRO_CHECK_EQ(mq["tag"][0], "a");
@@ -101,10 +107,10 @@ NITRO_TEST(http_parser_multi_queries)
     // decode
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search?key=%2B%26%3D&val=%E4%B8%AD%E6%96%87 HTTP/1.1");
-        parser.parseLine("");
+        parser.feedLine("GET /search?key=%2B%26%3D&val=%E4%B8%AD%E6%96%87 HTTP/1.1");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        HttpRequestAccessor accessor(std::move(result.message));
+        HttpRequestAccessor accessor(std::move(std::get<HttpRequest>(result)));
         auto mq = accessor.multiQueries();
         NITRO_CHECK_EQ(mq["key"][0], "+&=");
         NITRO_CHECK_EQ(mq["val"][0], "中文");
@@ -112,10 +118,10 @@ NITRO_TEST(http_parser_multi_queries)
     // key with no value
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search?flag&other=1 HTTP/1.1");
-        parser.parseLine("");
+        parser.feedLine("GET /search?flag&other=1 HTTP/1.1");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        HttpRequestAccessor accessor(std::move(result.message));
+        HttpRequestAccessor accessor(std::move(std::get<HttpRequest>(result)));
         auto mq = accessor.multiQueries();
         NITRO_CHECK(mq.contains("flag"));
         NITRO_CHECK(mq["flag"].empty());
@@ -124,10 +130,10 @@ NITRO_TEST(http_parser_multi_queries)
     // empty query string
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /search HTTP/1.1");
-        parser.parseLine("");
+        parser.feedLine("GET /search HTTP/1.1");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        HttpRequestAccessor accessor(std::move(result.message));
+        HttpRequestAccessor accessor(std::move(std::get<HttpRequest>(result)));
         NITRO_CHECK(accessor.multiQueries().empty());
     }
     co_return;
@@ -137,15 +143,15 @@ NITRO_TEST(http_parser_request_content_length)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("POST /data HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Content-Length: 100");
-    parser.parseLine("");
+    parser.feedLine("POST /data HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Content-Length: 100");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.transferMode, TransferMode::ContentLength);
-    NITRO_CHECK_EQ(result.message.contentLength, 100);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).transferMode, TransferMode::ContentLength);
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).contentLength, 100);
     co_return;
 }
 
@@ -154,31 +160,31 @@ NITRO_TEST(http_parser_request_transfer_encoding)
     // chunked
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("POST /data HTTP/1.1");
-        parser.parseLine("Transfer-Encoding: chunked");
-        parser.parseLine("");
+        parser.feedLine("POST /data HTTP/1.1");
+        parser.feedLine("Transfer-Encoding: chunked");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.transferMode, TransferMode::Chunked);
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpRequest>(result).transferMode, TransferMode::Chunked);
     }
     // gzip, chunked
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("POST /data HTTP/1.1");
-        parser.parseLine("Transfer-Encoding: gzip, chunked");
-        parser.parseLine("");
+        parser.feedLine("POST /data HTTP/1.1");
+        parser.feedLine("Transfer-Encoding: gzip, chunked");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.transferMode, TransferMode::Chunked);
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpRequest>(result).transferMode, TransferMode::Chunked);
     }
     // unsupported
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("POST /data HTTP/1.1");
-        parser.parseLine("Transfer-Encoding: gzip");
-        auto state = parser.parseLine("");
+        parser.feedLine("POST /data HTTP/1.1");
+        parser.feedLine("Transfer-Encoding: gzip");
+        auto state = parser.feedLine("");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::UnsupportedTransferEncoding);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::UnsupportedTransferEncoding);
     }
     co_return;
 }
@@ -187,13 +193,13 @@ NITRO_TEST(http_parser_request_keep_alive_http11)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.keepAlive); // HTTP/1.1 default
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpRequest>(result).keepAlive); // HTTP/1.1 default
     co_return;
 }
 
@@ -201,13 +207,13 @@ NITRO_TEST(http_parser_request_keep_alive_http10)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.0");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.0");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(!result.message.keepAlive); // HTTP/1.0 default
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(!std::get<HttpRequest>(result).keepAlive); // HTTP/1.0 default
     co_return;
 }
 
@@ -215,14 +221,14 @@ NITRO_TEST(http_parser_request_connection_close)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Connection: close");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Connection: close");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(!result.message.keepAlive);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(!std::get<HttpRequest>(result).keepAlive);
     co_return;
 }
 
@@ -232,20 +238,20 @@ NITRO_TEST(http_parser_response_basic)
 {
     HttpParser<HttpResponse> parser;
 
-    auto state = parser.parseLine("HTTP/1.1 200 OK");
+    auto state = parser.feedLine("HTTP/1.1 200 OK");
     NITRO_CHECK_EQ(state, HttpParserState::ExpectHeader);
 
-    state = parser.parseLine("Content-Type: text/plain");
+    state = parser.feedLine("Content-Type: text/plain");
     NITRO_CHECK_EQ(state, HttpParserState::ExpectHeader);
 
-    state = parser.parseLine("");
+    state = parser.feedLine("");
     NITRO_CHECK_EQ(state, HttpParserState::HeaderComplete);
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.version, Version::kHttp11);
-    NITRO_CHECK_EQ(result.message.statusCode, StatusCode::k200OK);
-    NITRO_CHECK_EQ(result.message.statusReason, "OK");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).version, Version::kHttp11);
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusCode, StatusCode::k200OK);
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusReason, "OK");
     co_return;
 }
 
@@ -253,14 +259,14 @@ NITRO_TEST(http_parser_response_content_length)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Content-Length: 50");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Content-Length: 50");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.transferMode, TransferMode::ContentLength);
-    NITRO_CHECK_EQ(result.message.contentLength, 50);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).transferMode, TransferMode::ContentLength);
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).contentLength, 50);
     co_return;
 }
 
@@ -269,31 +275,31 @@ NITRO_TEST(http_parser_response_transfer_encoding)
     // chunked
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 200 OK");
-        parser.parseLine("Transfer-Encoding: chunked");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 200 OK");
+        parser.feedLine("Transfer-Encoding: chunked");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.transferMode, TransferMode::Chunked);
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).transferMode, TransferMode::Chunked);
     }
     // gzip, chunked
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 200 OK");
-        parser.parseLine("Transfer-Encoding: gzip, chunked");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 200 OK");
+        parser.feedLine("Transfer-Encoding: gzip, chunked");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.transferMode, TransferMode::Chunked);
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).transferMode, TransferMode::Chunked);
     }
     // unsupported
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 200 OK");
-        parser.parseLine("Transfer-Encoding: deflate");
-        auto state = parser.parseLine("");
+        parser.feedLine("HTTP/1.1 200 OK");
+        parser.feedLine("Transfer-Encoding: deflate");
+        auto state = parser.feedLine("");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::UnsupportedTransferEncoding);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::UnsupportedTransferEncoding);
     }
     co_return;
 }
@@ -302,12 +308,12 @@ NITRO_TEST(http_parser_response_until_close)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine(""); // No Content-Length or Transfer-Encoding
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine(""); // No Content-Length or Transfer-Encoding
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.transferMode, TransferMode::UntilClose);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).transferMode, TransferMode::UntilClose);
     co_return;
 }
 
@@ -315,13 +321,13 @@ NITRO_TEST(http_parser_response_connection_close)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Connection: close");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Connection: close");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.shouldClose);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpResponse>(result).shouldClose);
     co_return;
 }
 
@@ -329,12 +335,12 @@ NITRO_TEST(http_parser_response_http10_default_close)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.0 200 OK");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.0 200 OK");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.shouldClose); // HTTP/1.0 default
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpResponse>(result).shouldClose); // HTTP/1.0 default
     co_return;
 }
 
@@ -343,76 +349,76 @@ NITRO_TEST(http_parser_response_status_code)
     // normal: with reason phrase
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 200 OK");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 200 OK");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.statusCode, StatusCode::k200OK);
-        NITRO_CHECK_EQ(result.message.statusReason, "OK");
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusCode, StatusCode::k200OK);
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusReason, "OK");
     }
     // normal: without reason phrase
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 204 ");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 204 ");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.statusCode, StatusCode::k204NoContent);
-        NITRO_CHECK(result.message.statusReason.empty());
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusCode, StatusCode::k204NoContent);
+        NITRO_CHECK(std::get<HttpResponse>(result).statusReason.empty());
     }
     // normal: without reason phrase and trailing space
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 204");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 204");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.statusCode, StatusCode::k204NoContent);
-        NITRO_CHECK(result.message.statusReason.empty());
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusCode, StatusCode::k204NoContent);
+        NITRO_CHECK(std::get<HttpResponse>(result).statusReason.empty());
     }
     // non-standard code
     {
         HttpParser<HttpResponse> parser;
-        parser.parseLine("HTTP/1.1 999 Custom");
-        parser.parseLine("");
+        parser.feedLine("HTTP/1.1 999 Custom");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.statusCode, 999);
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpResponse>(result).statusCode, 999);
     }
     // invalid version
     {
         HttpParser<HttpResponse> parser;
-        auto state = parser.parseLine("HTTP/2.0 200 OK");
+        auto state = parser.feedLine("HTTP/2.0 200 OK");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK(parser.extractResult().error());
+        NITRO_CHECK(std::holds_alternative<HttpParseError>(parser.extractResult()));
     }
     // missing first space
     {
         HttpParser<HttpResponse> parser;
-        auto state = parser.parseLine("HTTP/1.1");
+        auto state = parser.feedLine("HTTP/1.1");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK(parser.extractResult().error());
+        NITRO_CHECK(std::holds_alternative<HttpParseError>(parser.extractResult()));
     }
     // non-numeric status code
     {
         HttpParser<HttpResponse> parser;
-        auto state = parser.parseLine("HTTP/1.1 abc OK");
+        auto state = parser.feedLine("HTTP/1.1 abc OK");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // status code too short (2 digits)
     {
         HttpParser<HttpResponse> parser;
-        auto state = parser.parseLine("HTTP/1.1 99 OK");
+        auto state = parser.feedLine("HTTP/1.1 99 OK");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // status code too long (4 digits) but in range
     {
         HttpParser<HttpResponse> parser;
-        auto state = parser.parseLine("HTTP/1.1 1000 OK");
+        auto state = parser.feedLine("HTTP/1.1 1000 OK");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     co_return;
 }
@@ -421,15 +427,15 @@ NITRO_TEST(http_parser_empty_header_value)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("X-Empty:"); // Empty header value
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("X-Empty:"); // Empty header value
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.headers.contains("x-empty"));
-    NITRO_CHECK(result.message.headers.at("x-empty").value().empty());
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpRequest>(result).headers.contains("x-empty"));
+    NITRO_CHECK(std::get<HttpRequest>(result).headers.at("x-empty").value().empty());
     co_return;
 }
 
@@ -437,15 +443,15 @@ NITRO_TEST(http_parser_header_with_spaces)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("  X-Spaced  :  value with spaces  ");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("  X-Spaced  :  value with spaces  ");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.headers.contains("x-spaced"));
-    NITRO_CHECK_EQ(result.message.headers.at("x-spaced").value(), "value with spaces");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpRequest>(result).headers.contains("x-spaced"));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).headers.at("x-spaced").value(), "value with spaces");
     co_return;
 }
 
@@ -453,31 +459,31 @@ NITRO_TEST(http_parser_identity_encoding)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("POST /data HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Transfer-Encoding: identity");
-    parser.parseLine("Content-Length: 10");
-    parser.parseLine("");
+    parser.feedLine("POST /data HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Transfer-Encoding: identity");
+    parser.feedLine("Content-Length: 10");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.transferMode, TransferMode::ContentLength);
-    NITRO_CHECK_EQ(result.message.contentLength, 10);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).transferMode, TransferMode::ContentLength);
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).contentLength, 10);
     co_return;
 }
 NITRO_TEST(http_parser_request_duplicate_content_length_same)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("POST /data HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Content-Length: 42");
-    parser.parseLine("Content-Length: 42");
-    parser.parseLine("");
+    parser.feedLine("POST /data HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Content-Length: 42");
+    parser.feedLine("Content-Length: 42");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.contentLength, 42);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).contentLength, 42);
     co_return;
 }
 
@@ -485,15 +491,15 @@ NITRO_TEST(http_parser_request_duplicate_content_length_conflict)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("POST /data HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Content-Length: 42");
-    parser.parseLine("Content-Length: 99");
-    parser.parseLine("");
+    parser.feedLine("POST /data HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Content-Length: 42");
+    parser.feedLine("Content-Length: 99");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(result.error());
-    NITRO_CHECK_EQ(result.errorCode, HttpParseError::AmbiguousContentLength);
+    NITRO_CHECK(std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpParseError>(result).code, HttpParseError::AmbiguousContentLength);
     co_return;
 }
 
@@ -501,15 +507,15 @@ NITRO_TEST(http_parser_request_cookie)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Cookie: session=abc123; user=john");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Cookie: session=abc123; user=john");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.at("session"), "abc123");
-    NITRO_CHECK_EQ(result.message.cookies.at("user"), "john");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("session"), "abc123");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).cookies.at("user"), "john");
     co_return;
 }
 
@@ -517,15 +523,15 @@ NITRO_TEST(http_parser_response_set_cookie)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Set-Cookie: session=abc123; Path=/; HttpOnly");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Set-Cookie: session=abc123; Path=/; HttpOnly");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.cookies.size(), 1);
-    NITRO_CHECK_EQ(result.message.cookies[0].name, "session");
-    NITRO_CHECK_EQ(result.message.cookies[0].value, "abc123");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies.size(), 1);
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies[0].name, "session");
+    NITRO_CHECK_EQ(std::get<HttpResponse>(result).cookies[0].value, "abc123");
     co_return;
 }
 
@@ -533,14 +539,14 @@ NITRO_TEST(http_parser_request_encoded_path)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /user/john%20doe HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("");
+    parser.feedLine("GET /user/john%20doe HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.rawPath, "/user/john%20doe");
-    NITRO_CHECK_EQ(result.message.path, "/user/john doe");
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).rawPath, "/user/john%20doe");
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).path, "/user/john doe");
     co_return;
 }
 
@@ -548,14 +554,14 @@ NITRO_TEST(http_parser_request_keep_alive_http10_explicit)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.0");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Connection: keep-alive");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.0");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Connection: keep-alive");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(result.message.keepAlive);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(std::get<HttpRequest>(result).keepAlive);
     co_return;
 }
 
@@ -563,13 +569,13 @@ NITRO_TEST(http_parser_response_keep_alive_http10_explicit)
 {
     HttpParser<HttpResponse> parser;
 
-    parser.parseLine("HTTP/1.0 200 OK");
-    parser.parseLine("Connection: keep-alive");
-    parser.parseLine("");
+    parser.feedLine("HTTP/1.0 200 OK");
+    parser.feedLine("Connection: keep-alive");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK(!result.message.shouldClose);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK(!std::get<HttpResponse>(result).shouldClose);
     co_return;
 }
 
@@ -577,15 +583,15 @@ NITRO_TEST(http_parser_transfer_encoding_overrides_content_length)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("POST /data HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("Content-Length: 100");
-    parser.parseLine("Transfer-Encoding: chunked");
-    parser.parseLine("");
+    parser.feedLine("POST /data HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("Content-Length: 100");
+    parser.feedLine("Transfer-Encoding: chunked");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error());
-    NITRO_CHECK_EQ(result.message.transferMode, TransferMode::Chunked);
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+    NITRO_CHECK_EQ(std::get<HttpRequest>(result).transferMode, TransferMode::Chunked);
     co_return;
 }
 
@@ -593,14 +599,14 @@ NITRO_TEST(http_parser_invalid_header_no_colon)
 {
     HttpParser<HttpRequest> parser;
 
-    parser.parseLine("GET /hello HTTP/1.1");
-    parser.parseLine("Host: example.com");
-    parser.parseLine("InvalidHeaderWithoutColon");
-    parser.parseLine("");
+    parser.feedLine("GET /hello HTTP/1.1");
+    parser.feedLine("Host: example.com");
+    parser.feedLine("InvalidHeaderWithoutColon");
+    parser.feedLine("");
 
     auto result = parser.extractResult();
-    NITRO_CHECK(!result.error()); // silently ignored
-    NITRO_CHECK(!result.message.headers.contains(HttpHeader::toLower("InvalidHeaderWithoutColon")));
+    NITRO_CHECK(!std::holds_alternative<HttpParseError>(result)); // silently ignored
+    NITRO_CHECK(!std::get<HttpRequest>(result).headers.contains(HttpHeader::toLower("InvalidHeaderWithoutColon")));
     co_return;
 }
 
@@ -609,20 +615,20 @@ NITRO_TEST(http_parser_request_invalid_content_length)
     // non-numeric
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("POST /data HTTP/1.1");
-        parser.parseLine("Content-Length: abc");
-        auto state = parser.parseLine("");
+        parser.feedLine("POST /data HTTP/1.1");
+        parser.feedLine("Content-Length: abc");
+        auto state = parser.feedLine("");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::AmbiguousContentLength);
     }
     // negative string
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("POST /data HTTP/1.1");
-        parser.parseLine("Content-Length: -1");
-        auto state = parser.parseLine("");
+        parser.feedLine("POST /data HTTP/1.1");
+        parser.feedLine("Content-Length: -1");
+        auto state = parser.feedLine("");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::AmbiguousContentLength);
     }
     co_return;
 }
@@ -630,11 +636,11 @@ NITRO_TEST(http_parser_request_invalid_content_length)
 NITRO_TEST(http_parser_response_invalid_content_length)
 {
     HttpParser<HttpResponse> parser;
-    parser.parseLine("HTTP/1.1 200 OK");
-    parser.parseLine("Content-Length: abc");
-    auto state = parser.parseLine("");
+    parser.feedLine("HTTP/1.1 200 OK");
+    parser.feedLine("Content-Length: abc");
+    auto state = parser.feedLine("");
     NITRO_CHECK_EQ(state, HttpParserState::Error);
-    NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::AmbiguousContentLength);
+    NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::AmbiguousContentLength);
     co_return;
 }
 
@@ -643,41 +649,41 @@ NITRO_TEST(http_parser_request_line)
     // missing first space
     {
         HttpParser<HttpRequest> parser;
-        auto state = parser.parseLine("GET");
+        auto state = parser.feedLine("GET");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // missing second space (no version)
     {
         HttpParser<HttpRequest> parser;
-        auto state = parser.parseLine("GET /hello");
+        auto state = parser.feedLine("GET /hello");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // invalid method
     {
         HttpParser<HttpRequest> parser;
-        auto state = parser.parseLine("INVALID /hello HTTP/1.1");
+        auto state = parser.feedLine("INVALID /hello HTTP/1.1");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // invalid version
     {
         HttpParser<HttpRequest> parser;
-        auto state = parser.parseLine("GET /hello HTTP/2.0");
+        auto state = parser.feedLine("GET /hello HTTP/2.0");
         NITRO_CHECK_EQ(state, HttpParserState::Error);
-        NITRO_CHECK_EQ(parser.extractResult().errorCode, HttpParseError::MalformedRequestLine);
+        NITRO_CHECK_EQ(std::get<HttpParseError>(parser.extractResult()).code, HttpParseError::MalformedRequestLine);
     }
     // empty path — tolerated, normalized to /
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET  HTTP/1.1");
-        parser.parseLine("Host: example.com");
-        parser.parseLine("");
+        parser.feedLine("GET  HTTP/1.1");
+        parser.feedLine("Host: example.com");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK_EQ(result.message.path, "/");
-        NITRO_CHECK(result.message.rawPath.empty());
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK_EQ(std::get<HttpRequest>(result).path, "/");
+        NITRO_CHECK(std::get<HttpRequest>(result).rawPath.empty());
     }
     co_return;
 }
@@ -687,24 +693,24 @@ NITRO_TEST(http_parser_invalid_header_token)
     // header name with space — silently ignored
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /hello HTTP/1.1");
-        parser.parseLine("Host: example.com");
-        parser.parseLine("Bad Name: value");
-        parser.parseLine("");
+        parser.feedLine("GET /hello HTTP/1.1");
+        parser.feedLine("Host: example.com");
+        parser.feedLine("Bad Name: value");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK(!result.message.headers.contains("bad name"));
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK(!std::get<HttpRequest>(result).headers.contains("bad name"));
     }
     // header name with control character — silently ignored
     {
         HttpParser<HttpRequest> parser;
-        parser.parseLine("GET /hello HTTP/1.1");
-        parser.parseLine("Host: example.com");
-        parser.parseLine("Bad\x01Name: value");
-        parser.parseLine("");
+        parser.feedLine("GET /hello HTTP/1.1");
+        parser.feedLine("Host: example.com");
+        parser.feedLine("Bad\x01Name: value");
+        parser.feedLine("");
         auto result = parser.extractResult();
-        NITRO_CHECK(!result.error());
-        NITRO_CHECK(!result.message.headers.contains("bad\x01name"));
+        NITRO_CHECK(!std::holds_alternative<HttpParseError>(result));
+        NITRO_CHECK(!std::get<HttpRequest>(result).headers.contains("bad\x01name"));
     }
     co_return;
 }

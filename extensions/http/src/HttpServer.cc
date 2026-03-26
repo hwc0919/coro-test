@@ -50,16 +50,14 @@ static Task<HttpParseResult<HttpRequest>> parseNext(io::StreamPtr stream, std::s
         {
             if (buffer->remainSize() > kMaxHeaderLineSize)
             {
-                // TODO: should not use parser error
-                co_return { {}, HttpParseError::MalformedRequestLine, "Header line too long" };
+                co_return HttpParseError{ HttpParseError::MalformedRequestLine, "Header line too long" };
             }
 
             char * writePtr = buffer->prepareWrite(4096);
             size_t n = co_await stream->read(writePtr, 4096);
             if (n == 0)
             {
-                // TODO: should not use parser error
-                co_return { {}, HttpParseError::ConnectionClosed, "Connection closed before headers complete" };
+                co_return std::monostate{};
             }
             buffer->commitWrite(n);
             continue;
@@ -67,11 +65,10 @@ static Task<HttpParseResult<HttpRequest>> parseNext(io::StreamPtr stream, std::s
 
         if (++lines > kMaxHeaderCount)
         {
-            // TODO: should not use parser error
-            co_return { {}, HttpParseError::MalformedRequestLine, "Too many headers" };
+            co_return HttpParseError{ HttpParseError::MalformedRequestLine, "Too many headers" };
         }
         std::string_view line = buffer->view().substr(0, pos);
-        auto state = parser.parseLine(line);
+        auto state = parser.feedLine(line);
         buffer->consume(pos + 2);
 
         if (state == HttpParserState::Error)
@@ -138,7 +135,6 @@ Task<> HttpServer::start()
         {
             NITRO_ERROR("Unknown error handling connection");
         }
-        // TODO: force close?
     });
 }
 
@@ -176,9 +172,11 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
     while (true)
     {
         auto parsed = co_await parseNext(stream, buffer);
-        if (parsed.error())
+        if (std::holds_alternative<std::monostate>(parsed))
+            co_return;
+        if (std::holds_alternative<HttpParseError>(parsed))
         {
-            NITRO_DEBUG("Bad request: %s", parsed.errorMessage.c_str());
+            NITRO_DEBUG("Bad request: %s", std::get<HttpParseError>(parsed).message.c_str());
             Promise<> p(scheduler_);
             HttpOutgoingMessage<HttpResponse> errResp(stream, std::move(p), std::move(prevFuture), false, config_.send_date_header);
             errResp.setStatus(StatusCode::k400BadRequest);
@@ -189,12 +187,13 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             co_return;
         }
 
-        bool keepAlive = parsed.message.keepAlive;
-        auto transferMode = parsed.message.transferMode;
-        auto contentLength = parsed.message.contentLength;
+        auto & parsedMsg = std::get<HttpRequest>(parsed);
+        bool keepAlive = parsedMsg.keepAlive;
+        auto transferMode = parsedMsg.transferMode;
+        auto contentLength = parsedMsg.contentLength;
 
         auto bodyReader = BodyReader::create(stream, buffer, transferMode, contentLength);
-        auto request = std::make_shared<IncomingRequest>(std::move(parsed.message), bodyReader);
+        auto request = std::make_shared<IncomingRequest>(std::move(parsedMsg), bodyReader);
 
         auto method = request->method();
         Promise<> finishedPromise(scheduler_);

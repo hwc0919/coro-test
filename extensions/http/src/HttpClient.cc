@@ -29,13 +29,13 @@ static Task<HttpParseResult<HttpResponse>> parseNext(io::StreamPtr stream, std::
             char * writePtr = buffer->prepareWrite(4096);
             size_t n = co_await stream->read(writePtr, 4096);
             if (n == 0)
-                co_return { {}, HttpParseError::ConnectionClosed, "Connection closed before headers complete" };
+                co_return std::monostate{};
             buffer->commitWrite(n);
             continue;
         }
 
         std::string_view line = buffer->view().substr(0, pos);
-        auto state = parser.parseLine(line);
+        auto state = parser.feedLine(line);
         buffer->consume(pos + 2);
 
         if (state == HttpParserState::Error)
@@ -124,13 +124,16 @@ Task<HttpCompleteResponse> HttpClient::readResponse(io::StreamPtr stream, bool i
 {
     auto buffer = std::make_shared<utils::StringBuffer>();
     auto result = co_await parseNext(stream, buffer);
-    if (result.error())
-        throw std::runtime_error(result.errorMessage);
+    if (std::holds_alternative<std::monostate>(result))
+        throw std::runtime_error("Connection closed");
+    if (std::holds_alternative<HttpParseError>(result))
+        throw std::runtime_error(std::get<HttpParseError>(result).message);
 
-    auto transferMode = result.message.transferMode;
-    auto contentLength = result.message.contentLength;
+    auto & msg = std::get<HttpResponse>(result);
+    auto transferMode = msg.transferMode;
+    auto contentLength = msg.contentLength;
     auto bodyReader = BodyReader::create(stream, buffer, transferMode, ignoreContentLength ? 0 : contentLength);
-    auto incomingStream = HttpIncomingStream<HttpResponse>(std::move(result.message), std::move(bodyReader));
+    auto incomingStream = HttpIncomingStream<HttpResponse>(std::move(msg), std::move(bodyReader));
     co_return co_await incomingStream.toCompleteResponse();
 }
 
@@ -176,16 +179,22 @@ Task<HttpClientSession> HttpClient::stream(const HttpMethod & method, const std:
         {
             auto buffer = std::make_shared<utils::StringBuffer>();
             auto result = co_await parseNext(anyStream, buffer);
-            if (result.error())
+            if (std::holds_alternative<std::monostate>(result))
             {
-                promise.set_exception(std::make_exception_ptr(std::runtime_error(result.errorMessage)));
+                promise.set_exception(std::make_exception_ptr(std::runtime_error("Connection closed")));
+                co_return;
+            }
+            if (std::holds_alternative<HttpParseError>(result))
+            {
+                promise.set_exception(std::make_exception_ptr(std::runtime_error(std::get<HttpParseError>(result).message)));
                 co_return;
             }
 
-            auto transferMode = result.message.transferMode;
-            auto contentLength = result.message.contentLength;
+            auto & msg = std::get<HttpResponse>(result);
+            auto transferMode = msg.transferMode;
+            auto contentLength = msg.contentLength;
             auto response = HttpIncomingStream<HttpResponse>(
-                std::move(result.message),
+                std::move(msg),
                 BodyReader::create(anyStream, buffer, transferMode, contentLength));
             promise.set_value(std::move(response));
         }

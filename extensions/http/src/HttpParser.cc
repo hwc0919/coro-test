@@ -51,10 +51,9 @@ static bool isValidToken(std::string_view s)
     return true;
 }
 
-void HttpParser<HttpRequest>::setError(HttpParseError code, std::string message)
+void HttpParser<HttpRequest>::setError(HttpParseError::Code code, std::string message)
 {
-    errorCode_ = code;
-    errorMessage_ = std::move(message);
+    error_ = { code, std::move(message) };
     state_ = HttpParserState::Error;
 }
 
@@ -99,15 +98,18 @@ static HeaderLine parseHeaderLine(std::string_view line)
 // HttpParser<HttpRequest> Implementation
 // ============================================================================
 
-void HttpParser<HttpResponse>::setError(HttpParseError code, std::string message)
+void HttpParser<HttpResponse>::setError(HttpParseError::Code code, std::string message)
 {
-    errorCode_ = code;
-    errorMessage_ = std::move(message);
+    error_ = { code, std::move(message) };
     state_ = HttpParserState::Error;
 }
 
-HttpParserState HttpParser<HttpRequest>::parseLine(std::string_view line)
+HttpParserState HttpParser<HttpRequest>::feedLine(std::string_view line)
 {
+    if (state_ == HttpParserState::Error)
+    {
+        return state_;
+    }
     if (state_ == HttpParserState::ExpectStatusLine)
     {
         if (!parseRequestLine(line))
@@ -333,15 +335,19 @@ void HttpParser<HttpRequest>::parseCookies(const std::string & cookieHeader)
 
 HttpParseResult<HttpRequest> HttpParser<HttpRequest>::extractResult()
 {
-    return { std::move(data_), errorCode_, errorMessage_ };
+    if (state_ == HttpParserState::Error)
+        return error_;
+    return std::move(data_);
 }
 
 // ============================================================================
 // HttpParser<HttpResponse> Implementation
 // ============================================================================
 
-HttpParserState HttpParser<HttpResponse>::parseLine(std::string_view line)
+HttpParserState HttpParser<HttpResponse>::feedLine(std::string_view line)
 {
+    if (state_ == HttpParserState::Error)
+        return state_;
     if (state_ == HttpParserState::ExpectStatusLine)
     {
         if (!parseStatusLine(line))
@@ -510,7 +516,9 @@ void HttpParser<HttpResponse>::parseCookies(const std::string & cookieHeader)
 
 HttpParseResult<HttpResponse> HttpParser<HttpResponse>::extractResult()
 {
-    return { std::move(data_), errorCode_, errorMessage_ };
+    if (state_ == HttpParserState::Error)
+        return error_;
+    return std::move(data_);
 }
 
 } // namespace nitrocoro::http

@@ -7,28 +7,26 @@
 
 #include <string>
 #include <string_view>
+#include <variant>
 
 namespace nitrocoro::http
 {
 
-enum class HttpParseError
+struct HttpParseError
 {
-    None,
-    ConnectionClosed,
-    MalformedRequestLine,
-    AmbiguousContentLength,
-    UnsupportedTransferEncoding
+    enum Code
+    {
+        MalformedRequestLine,
+        AmbiguousContentLength,
+        UnsupportedTransferEncoding
+    };
+
+    Code code;
+    std::string message;
 };
 
 template <typename T>
-struct HttpParseResult
-{
-    T message;
-    HttpParseError errorCode = HttpParseError::None;
-    std::string errorMessage;
-
-    bool error() const { return errorCode != HttpParseError::None; }
-};
+using HttpParseResult = std::variant<T, HttpParseError, std::monostate>;
 
 enum class HttpParserState
 {
@@ -53,19 +51,16 @@ public:
     using State = HttpParserState;
     HttpParser() = default;
 
-    HttpParserState parseLine(std::string_view line);
+    HttpParserState feedLine(std::string_view line);
     HttpParserState state() const { return state_; }
-    HttpParseError errorCode() const { return errorCode_; }
-    const std::string & errorMessage() const { return errorMessage_; }
     HttpParseResult<HttpRequest> extractResult();
 
 private:
     HttpRequest data_;
     HttpParserState state_ = HttpParserState::ExpectStatusLine;
-    HttpParseError errorCode_ = HttpParseError::None;
-    std::string errorMessage_;
+    HttpParseError error_;
 
-    void setError(HttpParseError code, std::string message);
+    void setError(HttpParseError::Code code, std::string message);
     bool parseRequestLine(std::string_view line);
     void parseHeader(std::string_view line);
     void parseQueryString(std::string_view queryStr);
@@ -87,19 +82,16 @@ public:
     using State = HttpParserState;
     HttpParser() = default;
 
-    HttpParserState parseLine(std::string_view line);
+    HttpParserState feedLine(std::string_view line);
     HttpParserState state() const { return state_; }
-    HttpParseError errorCode() const { return errorCode_; }
-    const std::string & errorMessage() const { return errorMessage_; }
     HttpParseResult<HttpResponse> extractResult();
 
 private:
     HttpResponse data_;
     HttpParserState state_ = HttpParserState::ExpectStatusLine;
-    HttpParseError errorCode_ = HttpParseError::None;
-    std::string errorMessage_;
+    HttpParseError error_;
 
-    void setError(HttpParseError code, std::string message);
+    void setError(HttpParseError::Code code, std::string message);
     bool parseStatusLine(std::string_view line);
     void parseHeader(std::string_view line);
     void parseCookies(const std::string & cookieHeader);
