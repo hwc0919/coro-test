@@ -214,18 +214,11 @@ NITRO_TEST(https_chunked)
     });
 
     server.route("/chunked", { "GET" }, [](auto req, auto resp) {
-        resp->setBody([i = 0]() mutable -> Task<std::string> {
-            switch (++i)
-            {
-                case 1:
-                    co_return "chunk1";
-                case 2:
-                    co_return "chunk2";
-                case 3:
-                    co_return "chunk3";
-                default:
-                    co_return "";
-            }
+        resp->setBody([]() mutable -> AsyncGenerator<std::string> {
+            co_yield "chunk1";
+            co_yield "chunk2";
+            co_yield "chunk3";
+            co_return;
         });
     });
 

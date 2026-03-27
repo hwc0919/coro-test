@@ -3,13 +3,13 @@
  * @brief HTTP outgoing stream for writing requests and responses
  */
 #pragma once
-#include <nitrocoro/http/BodyWriter.h>
 #include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
 
 #include <nitrocoro/core/Future.h>
+#include <nitrocoro/core/Generator.h>
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
 
@@ -28,7 +28,7 @@ template <typename DataType>
 class HttpOutgoingMessageBase
 {
 public:
-    using BodyStream = std::function<Task<std::string>()>;
+    using BodyGenerator = std::function<AsyncGenerator<std::string>()>;
 
     explicit HttpOutgoingMessageBase(io::StreamPtr stream,
                                      Promise<> finishedPromise,
@@ -49,7 +49,7 @@ public:
 
     void setBody(std::string body);
     void setBody(const char * data, size_t len);
-    void setBody(BodyStream bodyStream);
+    void setBody(BodyGenerator bodyGenerator);
     Task<> flush();
     bool sendStarted() const { return startSending_; }
 
@@ -59,7 +59,7 @@ protected:
 
     DataType data_;
     std::string body_;
-    BodyStream bodyStream_;
+    BodyGenerator bodyGenerator_;
 
     io::StreamPtr stream_;
     bool startSending_{ false };
