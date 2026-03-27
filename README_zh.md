@@ -142,7 +142,7 @@ int main(int argc, char* argv[])
         .registerHandler("/large", [](drogon::HttpRequestPtr req) -> drogon::Task<drogon::HttpResponsePtr> {
             auto resp = drogon::HttpResponse::newHttpResponse();
             std::string largeBody(1024 * 1024, 'a');
-            resp->setBody(largeBody);
+            resp->setBody(std::move(largeBody));
             co_return resp;
         })
         .registerHandler("/hello", [](drogon::HttpRequestPtr req) -> drogon::Task<drogon::HttpResponsePtr> {

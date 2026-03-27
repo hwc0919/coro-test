@@ -27,7 +27,7 @@ Task<> server_main(uint16_t port)
         resp->setStatus(StatusCode::k200OK);
         resp->setHeader("Content-Type", "text/html; charset=utf-8");
         std::string largeBody(1024 * 1024, 'a');
-        resp->setBody(largeBody);
+        resp->setBody(std::move(largeBody));
     });
 
     server.route("/hello", { "GET" }, [](IncomingRequestPtr req, ServerResponsePtr resp) {
