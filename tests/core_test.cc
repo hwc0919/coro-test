@@ -107,6 +107,56 @@ NITRO_TEST(generator_exception)
     co_return;
 }
 
+// ── AsyncGenerator ───────────────────────────────────────────────────────────
+
+/** AsyncGenerator yields values that can be co_awaited by the consumer. */
+NITRO_TEST(async_generator_basic)
+{
+    auto range = [](int n) -> AsyncGenerator<int> {
+        for (int i = 0; i < n; ++i)
+            co_yield i;
+    };
+    int sum = 0;
+    auto gen = range(5);
+    while (auto val = co_await gen.next())
+        sum += *val;
+    NITRO_CHECK_EQ(sum, 10);
+}
+
+/** AsyncGenerator can co_await inside the generator body. */
+NITRO_TEST(async_generator_with_await)
+{
+    auto gen = []() -> AsyncGenerator<int> {
+        co_await Scheduler::current()->sleep_for(0.0);
+        co_yield 1;
+        co_await Scheduler::current()->sleep_for(0.0);
+        co_yield 2;
+    }();
+    int sum = 0;
+    while (auto val = co_await gen.next())
+        sum += *val;
+    NITRO_CHECK_EQ(sum, 3);
+}
+
+/** An AsyncGenerator that yields nothing produces nullopt immediately. */
+NITRO_TEST(async_generator_empty)
+{
+    auto gen = []() -> AsyncGenerator<int> { co_return; }();
+    auto val = co_await gen.next();
+    NITRO_CHECK(!val.has_value());
+}
+
+/** Exceptions thrown inside an AsyncGenerator propagate to the consumer. */
+NITRO_TEST(async_generator_exception)
+{
+    auto gen = []() -> AsyncGenerator<int> {
+        co_yield 1;
+        throw std::runtime_error("gen error");
+    }();
+    co_await gen.next(); // consume 1
+    NITRO_CHECK_THROWS_AS(co_await gen.next(), std::runtime_error);
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
