@@ -6,8 +6,9 @@
 #include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/stream/HttpOutgoingMessage.h>
 
+#include <nitrocoro/utils/Debug.h>
+
 #include <ctime>
-#include <optional>
 
 namespace nitrocoro::http
 {
@@ -113,9 +114,6 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
     buildHeaders(buf);
     buf.append("\r\n");
 
-    if (prevFuture_)
-        co_await prevFuture_->get();
-
     if (!bodyWriterFn_)
     {
         // TODO: writev
@@ -124,6 +122,7 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
     }
     else
     {
+        // assert(bodyWriter);
         // send headers
         co_await stream_->write(buf.data(), buf.size());
         // send body
@@ -131,8 +130,6 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
         co_await bodyWriterFn_(bodyStream);
         co_await bodyWriter->end();
     }
-    finishedPromise_.set_value();
-    co_return;
 }
 
 template <typename DataType>

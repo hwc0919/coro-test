@@ -3,19 +3,16 @@
  * @brief HTTP outgoing stream for writing requests and responses
  */
 #pragma once
+#include <nitrocoro/http/BodyWriter.h>
 #include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
 
-#include <nitrocoro/http/BodyWriter.h>
-
-#include <nitrocoro/core/Future.h>
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -47,13 +44,9 @@ public:
     using BodyWriterFn = std::function<Task<>(BodyStream &)>;
 
     explicit HttpOutgoingMessageBase(io::StreamPtr stream,
-                                     Promise<> finishedPromise,
-                                     std::optional<Future<>> prevFuture = std::nullopt,
                                      bool ignoreBody = false,
                                      bool send_date_header = true)
         : stream_(std::move(stream))
-        , finishedPromise_(std::move(finishedPromise))
-        , prevFuture_(std::move(prevFuture))
         , ignoreBody_(ignoreBody)
         , sendDateHeader_(send_date_header)
     {
@@ -80,8 +73,6 @@ protected:
     io::StreamPtr stream_;
     bool startSending_{ false };
     TransferMode transferMode_{ TransferMode::Chunked };
-    Promise<> finishedPromise_;
-    std::optional<Future<>> prevFuture_;
     bool ignoreBody_{ false };
     bool sendDateHeader_{ true };
     size_t bodyLength_{ 0 };
@@ -102,16 +93,8 @@ class HttpOutgoingMessage<HttpRequest>
     : public detail::HttpOutgoingMessageBase<HttpRequest>
 {
 public:
-    explicit HttpOutgoingMessage(io::StreamPtr stream,
-                                 Promise<> finishedPromise,
-                                 std::optional<Future<>> prevFuture = std::nullopt)
-        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream),
-                                                       std::move(finishedPromise),
-                                                       std::move(prevFuture))
-    {
-    }
     explicit HttpOutgoingMessage(io::StreamPtr stream)
-        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream), Promise<>())
+        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream))
     {
     }
 
@@ -132,13 +115,9 @@ class HttpOutgoingMessage<HttpResponse>
 {
 public:
     explicit HttpOutgoingMessage(io::StreamPtr stream,
-                                 Promise<> finishedPromise,
-                                 std::optional<Future<>> prevFuture = std::nullopt,
                                  bool ignoreBody = false,
                                  bool send_date_header = true)
         : detail::HttpOutgoingMessageBase<HttpResponse>(std::move(stream),
-                                                        std::move(finishedPromise),
-                                                        std::move(prevFuture),
                                                         ignoreBody,
                                                         send_date_header)
     {

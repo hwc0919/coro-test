@@ -168,7 +168,6 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
     }
 
     auto buffer = std::make_shared<utils::StringBuffer>();
-    std::optional<Future<>> prevFuture;
     while (true)
     {
         auto parsed = co_await parseNext(stream, buffer);
@@ -177,8 +176,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         if (std::holds_alternative<HttpParseError>(parsed))
         {
             NITRO_DEBUG("Bad request: %s", std::get<HttpParseError>(parsed).message.c_str());
-            Promise<> p(scheduler_);
-            HttpOutgoingMessage<HttpResponse> errResp(stream, std::move(p), std::move(prevFuture), false, config_.send_date_header);
+            HttpOutgoingMessage<HttpResponse> errResp(stream, false, config_.send_date_header);
             errResp.setStatus(StatusCode::k400BadRequest);
             errResp.setCloseConnection(true);
             errResp.setBody("Bad Request");
@@ -199,8 +197,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         Promise<> finishedPromise(scheduler_);
         auto finishedFuture = finishedPromise.get_future();
         bool ignoreBody = (method == methods::Head);
-        auto response = std::make_shared<ServerResponse>(stream, std::move(finishedPromise), std::move(prevFuture), ignoreBody, config_.send_date_header);
-        prevFuture = std::move(finishedFuture);
+        auto response = std::make_shared<ServerResponse>(stream, ignoreBody, config_.send_date_header);
         response->setCloseConnection(!keepAlive);
 
         if (requestUpgrader_ && isUpgradeRequest(*request))

@@ -4,6 +4,8 @@
  */
 #include <nitrocoro/http/HttpClient.h>
 #include <nitrocoro/http/HttpServer.h>
+#include <nitrocoro/net/InetAddress.h>
+#include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
 
 using namespace nitrocoro;
@@ -70,6 +72,39 @@ NITRO_TEST(client_streaming_request)
     auto complete = co_await response.toCompleteResponse();
     NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(complete.body(), data);
+
+    co_await server.stop();
+}
+
+/** Writer throws mid-stream; connection is closed and server does not crash. */
+NITRO_TEST(server_streaming_response_writer_throws)
+{
+    HttpServer server(0);
+
+    server.route("/throw", { "GET" }, [](auto req, auto resp) {
+        resp->setBody([](auto & writer) -> Task<> {
+            co_await writer.write("partial");
+            throw std::runtime_error("writer error");
+        });
+    });
+    co_await start_server(server);
+
+    auto conn = co_await net::TcpConnection::connect(
+        net::InetAddress("127.0.0.1", server.listeningPort()));
+    std::string req = "GET /throw HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    // Drain until EOF — connection must close, not hang
+    char buf[4096];
+    std::string received;
+    while (true)
+    {
+        size_t n = co_await conn->read(buf, sizeof(buf));
+        if (n == 0)
+            break;
+        received.append(buf, n);
+    }
+    NITRO_CHECK(received.find("partial") != std::string::npos);
 
     co_await server.stop();
 }
