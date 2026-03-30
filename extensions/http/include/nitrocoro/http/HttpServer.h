@@ -66,7 +66,25 @@ public:
 
 private:
     Task<> handleConnection(net::TcpConnectionPtr conn);
-    Task<> flushResponse(ServerResponse & resp, std::optional<SharedFuture<>> prev, Promise<> & done);
+
+    struct HandleResult
+    {
+        enum class Action
+        {
+            Disconnected,
+            Close,
+            Shutdown,
+            Upgrade,
+            Continue
+        };
+
+        Action action{ Action::Continue };
+        ServerResponsePtr resp;
+        std::shared_ptr<BodyReader> bodyReader;
+        StreamHandler streamHandler;
+    };
+    Task<HandleResult> handleNextRequest(
+        io::StreamPtr, std::shared_ptr<utils::StringBuffer>);
 
     HttpServerConfig config_;
     Scheduler * scheduler_;

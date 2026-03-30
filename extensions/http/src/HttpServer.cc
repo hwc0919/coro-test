@@ -146,24 +146,140 @@ Task<> HttpServer::stop()
     }
 }
 
-Task<> HttpServer::flushResponse(ServerResponse & resp, std::optional<SharedFuture<>> prev, Promise<> & done)
+Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
+    io::StreamPtr stream,
+    std::shared_ptr<utils::StringBuffer> buffer)
 {
+    using Action = HandleResult::Action;
+
+    auto parsed = co_await parseNext(stream, buffer);
+    if (std::holds_alternative<std::monostate>(parsed))
+    {
+        co_return { Action::Disconnected };
+    }
+    if (std::holds_alternative<HttpParseError>(parsed))
+    {
+        NITRO_DEBUG("Bad request: %s", std::get<HttpParseError>(parsed).message.c_str());
+        auto resp = std::make_shared<ServerResponse>(stream, false, config_.send_date_header);
+        resp->setStatus(StatusCode::k400BadRequest);
+        resp->setCloseConnection(true);
+        resp->setBody("Bad Request");
+        co_return { Action::Close, resp };
+    }
+
+    auto & parsedMsg = std::get<HttpRequest>(parsed);
+    bool keepAlive = parsedMsg.keepAlive;
+    auto transferMode = parsedMsg.transferMode;
+    auto contentLength = parsedMsg.contentLength;
+
+    auto bodyReader = BodyReader::create(stream, buffer, transferMode, contentLength);
+    auto request = std::make_shared<IncomingRequest>(std::move(parsedMsg), bodyReader);
+
+    auto method = request->method();
+    bool ignoreBody = (method == methods::Head);
+    auto response = std::make_shared<ServerResponse>(stream, ignoreBody, config_.send_date_header);
+    response->setCloseConnection(!keepAlive);
+
+    if (method == methods::_Invalid)
+    {
+        response->setStatus(StatusCode::k400BadRequest);
+        response->setBody("Bad Request");
+        co_return { keepAlive ? Action::Continue : Action::Shutdown, response, bodyReader };
+    }
+
+    if (requestUpgrader_ && isUpgradeRequest(*request))
+    {
+        auto handler = co_await requestUpgrader_(request, response);
+        if (handler)
+        {
+            co_return { Action::Upgrade, response, bodyReader, std::move(*handler) };
+        }
+    }
+
+    auto routeRes = router_->route(method, request->path());
+    request->pathParams() = std::move(routeRes.params);
+    if (routeRes.reason != HttpRouter::RouteResult::Reason::Ok || !routeRes.handler)
+    {
+        // TODO: custom handler? 404 could use * route?
+        if (routeRes.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed)
+        {
+            if (method == methods::Options)
+            {
+                response->setStatus(StatusCode::k200OK);
+                response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
+            }
+            else
+            {
+                response->setStatus(StatusCode::k405MethodNotAllowed);
+                response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
+                response->setBody("Method Not Allowed");
+            }
+        }
+        else
+        {
+            response->setStatus(StatusCode::k404NotFound);
+            response->setBody("Not Found");
+        }
+
+        co_return { keepAlive ? Action::Continue : Action::Shutdown, response, bodyReader };
+    }
+
+    auto expect = request->getHeader(HttpHeader::NameCode::Expect);
+    if (!expect.empty())
+    {
+        if (expect != "100-continue")
+        {
+            response->setStatus(StatusCode::k417ExpectationFailed);
+            response->setBody("Expectation Failed");
+            co_return { keepAlive ? Action::Continue : Action::Shutdown, response, bodyReader };
+        }
+        // TODO: custom handler
+        co_await stream->write("HTTP/1.1 100 Continue\r\n\r\n", 25);
+    }
+
+    std::exception_ptr exPtr;
     try
     {
-        if (prev)
-            co_await *prev;
-        co_await resp.flush();
+        auto & middlewares = middlewares_;
+        auto invokeChain = [&](auto & self, size_t index,
+                               IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
+            if (index < middlewares.size())
+            {
+                co_await middlewares[index](req, resp, [&]() -> Task<> {
+                    co_await self(self, index + 1, req, resp);
+                });
+            }
+            else
+            {
+                co_await routeRes.handler->invoke(req, resp);
+            }
+        };
+        co_await invokeChain(invokeChain, 0, request, response);
+    }
+    catch (const std::exception & ex)
+    {
+        NITRO_ERROR("Unhandled exception in handler: %s", ex.what());
+        exPtr = std::current_exception();
     }
     catch (...)
     {
-        done.set_exception(std::current_exception());
-        throw;
+        NITRO_ERROR("Unhandled exception in handler");
+        exPtr = std::current_exception();
     }
-    done.set_value();
+    // TODO: custom exception handler
+    if (exPtr)
+    {
+        keepAlive = false;
+        response->setStatus(StatusCode::k500InternalServerError);
+        response->setBody("Internal Server Error");
+    }
+    co_return { keepAlive ? Action::Continue : Action::Shutdown, response, bodyReader };
 }
 
 Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
 {
+    using Action = HandleResult::Action;
+
     io::StreamPtr stream;
 
     if (upgrader_)
@@ -187,165 +303,42 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
     auto buffer = std::make_shared<utils::StringBuffer>();
     while (true)
     {
-        Promise<> done(scheduler_);
-        auto myPrev = prevFuture;
+        Promise<> done;
+        auto prev = prevFuture;
         prevFuture = done.get_future().share();
 
-        auto parsed = co_await parseNext(stream, buffer);
-        if (std::holds_alternative<std::monostate>(parsed))
-            co_return;
-        if (std::holds_alternative<HttpParseError>(parsed))
-        {
-            NITRO_DEBUG("Bad request: %s", std::get<HttpParseError>(parsed).message.c_str());
-            HttpOutgoingMessage<HttpResponse> errResp(stream, false, config_.send_date_header);
-            errResp.setStatus(StatusCode::k400BadRequest);
-            errResp.setCloseConnection(true);
-            errResp.setBody("Bad Request");
-            co_await flushResponse(errResp, myPrev, done);
-            co_await stream->shutdown();
-            co_return;
-        }
+        auto result = co_await handleNextRequest(stream, buffer);
+        if (result.action == Action::Disconnected)
+            break;
 
-        auto & parsedMsg = std::get<HttpRequest>(parsed);
-        bool keepAlive = parsedMsg.keepAlive;
-        auto transferMode = parsedMsg.transferMode;
-        auto contentLength = parsedMsg.contentLength;
-
-        auto bodyReader = BodyReader::create(stream, buffer, transferMode, contentLength);
-        auto request = std::make_shared<IncomingRequest>(std::move(parsedMsg), bodyReader);
-
-        auto method = request->method();
-        bool ignoreBody = (method == methods::Head);
-        auto response = std::make_shared<ServerResponse>(stream, ignoreBody, config_.send_date_header);
-        response->setCloseConnection(!keepAlive);
-
-        if (requestUpgrader_ && isUpgradeRequest(*request))
-        {
-            auto handler = co_await requestUpgrader_(request, response);
-            if (handler)
-            {
-                co_await flushResponse(*response, myPrev, done);
-                co_await (*handler)(stream);
-                co_return;
-            }
-        }
-
-        if (method == methods::_Invalid)
-        {
-            response->setStatus(StatusCode::k400BadRequest);
-            response->setBody("Bad Request");
-            co_await flushResponse(*response, myPrev, done);
-            if (!bodyReader->isComplete())
-                co_await bodyReader->drain();
-            if (!keepAlive)
-            {
-                co_await stream->shutdown();
-                co_return;
-            }
-            continue;
-        }
-
-        auto routeRes = router_->route(method, request->path());
-        request->pathParams() = std::move(routeRes.params);
-        if (routeRes.reason != HttpRouter::RouteResult::Reason::Ok || !routeRes.handler)
-        {
-            // TODO: custom handler? 404 could use * route?
-            if (routeRes.reason == HttpRouter::RouteResult::Reason::MethodNotAllowed)
-            {
-                if (method == methods::Options)
-                {
-                    response->setStatus(StatusCode::k200OK);
-                    response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
-                }
-                else
-                {
-                    response->setStatus(StatusCode::k405MethodNotAllowed);
-                    response->setHeader(HttpHeader::NameCode::Allow, routeRes.allowedMethods);
-                    response->setBody("Method Not Allowed");
-                }
-            }
-            else
-            {
-                response->setStatus(StatusCode::k404NotFound);
-                response->setBody("Not Found");
-            }
-
-            co_await flushResponse(*response, myPrev, done);
-            if (!bodyReader->isComplete())
-                co_await bodyReader->drain();
-            if (!keepAlive)
-            {
-                co_await stream->shutdown();
-                co_return;
-            }
-            continue;
-        }
-
-        // TODO: refine if logics
-        auto expect = request->getHeader(HttpHeader::NameCode::Expect);
-        if (!expect.empty())
-        {
-            if (expect != "100-continue")
-            {
-                response->setStatus(StatusCode::k417ExpectationFailed);
-                response->setBody("Expectation Failed");
-                co_await flushResponse(*response, myPrev, done);
-                if (!bodyReader->isComplete())
-                    co_await bodyReader->drain();
-                if (!keepAlive)
-                {
-                    co_await stream->shutdown();
-                    co_return;
-                }
-                continue;
-            }
-            co_await stream->write("HTTP/1.1 100 Continue\r\n\r\n", 25);
-        }
-
-        std::exception_ptr exPtr;
+        // flush response
         try
         {
-            auto & middlewares = middlewares_;
-            auto invokeChain = [&](auto & self, size_t index,
-                                   IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
-                if (index < middlewares.size())
-                {
-                    co_await middlewares[index](req, resp, [&]() -> Task<> {
-                        co_await self(self, index + 1, req, resp);
-                    });
-                }
-                else
-                {
-                    co_await routeRes.handler->invoke(req, resp);
-                }
-            };
-            co_await invokeChain(invokeChain, 0, request, response);
-        }
-        catch (const std::exception & ex)
-        {
-            NITRO_ERROR("Unhandled exception in handler: %s", ex.what());
-            exPtr = std::current_exception();
+            if (prev)
+                co_await *prev;
+            co_await result.resp->flush();
         }
         catch (...)
         {
-            NITRO_ERROR("Unhandled exception in handler");
-            exPtr = std::current_exception();
+            done.set_exception(std::current_exception());
+            throw;
         }
-        // TODO: custom exception handler
-        if (exPtr)
+        done.set_value();
+
+        if (result.action == Action::Upgrade)
         {
-            keepAlive = false;
-            response->setStatus(StatusCode::k500InternalServerError);
-            response->setBody("Internal Server Error");
+            co_await result.streamHandler(stream);
+            break;
         }
-        co_await flushResponse(*response, myPrev, done);
-        if (!bodyReader->isComplete())
-            co_await bodyReader->drain();
-        if (!keepAlive)
+        if (result.bodyReader && !result.bodyReader->isComplete())
+            co_await result.bodyReader->drain();
+        if (result.action == Action::Shutdown)
         {
             co_await stream->shutdown();
             break;
         }
+        if (result.action == Action::Close)
+            break;
     }
 }
 
