@@ -38,4 +38,13 @@ void Socket::shutdownWrite() noexcept
         NITRO_ERROR("shutdownWrite fd %d failed: %s", fd_, strerror(errno));
 }
 
+int Socket::getLastError(int fd) noexcept
+{
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0)
+        return errno;
+    return error;
+}
+
 } // namespace nitrocoro::net

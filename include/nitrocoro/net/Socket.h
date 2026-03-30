@@ -27,6 +27,7 @@ public:
     int fd() const noexcept { return fd_; }
     bool valid() const noexcept { return fd_ >= 0; }
     void shutdownWrite() noexcept;
+    static int getLastError(int fd) noexcept;
 
 private:
     int fd_{ -1 };

@@ -2,6 +2,7 @@
  * @file TcpConnection.cc
  * @brief Implementation of TcpConnection
  */
+#include <cstring>
 #include <nitrocoro/net/TcpConnection.h>
 
 #include <nitrocoro/core/Scheduler.h>
@@ -32,12 +33,7 @@ struct Connector
     {
         if (connecting_)
         {
-            int error = 0;
-            socklen_t len = sizeof(error);
-            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0)
-            {
-                return Channel::IoStatus::Error;
-            }
+            int error = Socket::getLastError(fd);
             if (error == 0)
             {
                 channel->disableWriting();
@@ -128,7 +124,7 @@ Task<size_t> TcpConnection::read(void * buf, size_t len)
     if (result != Channel::IoResult::Success)
     {
         state_ = State::Closed;
-        throw std::runtime_error("TCP read error");
+        throw std::runtime_error(strerror(reader.savedErrno()));
     }
     co_return reader.readLen();
 }
@@ -145,7 +141,7 @@ Task<size_t> TcpConnection::write(const void * buf, size_t len)
     if (result != Channel::IoResult::Success)
     {
         state_ = State::Closed;
-        throw std::runtime_error("TCP write error");
+        throw std::runtime_error(strerror(writer.savedErrno()));
     }
     co_return len;
 }

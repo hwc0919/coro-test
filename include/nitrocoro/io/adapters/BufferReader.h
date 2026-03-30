@@ -15,6 +15,7 @@ struct BufferReader
     BufferReader(void * buf, size_t len)
         : buf_(buf), len_(len) {}
     size_t readLen() const { return readLen_; }
+    int savedErrno() const { return savedErrno_; }
 
     Channel::IoStatus operator()(int fd, Channel *)
     {
@@ -42,7 +43,10 @@ struct BufferReader
                     return Channel::IoStatus::NeedRead;
                 case EINTR:
                     return Channel::IoStatus::Retry;
+                case ECONNRESET:
+                    return Channel::IoStatus::Eof;
                 default:
+                    savedErrno_ = errno;
                     return Channel::IoStatus::Error;
             }
         }
@@ -52,6 +56,7 @@ private:
     void * buf_;
     size_t len_;
     size_t readLen_{ 0 };
+    int savedErrno_{ 0 };
 };
 
 } // namespace nitrocoro::io::adapters

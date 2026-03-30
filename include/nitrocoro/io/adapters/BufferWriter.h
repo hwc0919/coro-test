@@ -18,6 +18,8 @@ struct BufferWriter
     {
     }
 
+    int savedErrno() const { return savedErrno_; }
+
     Channel::IoStatus operator()(int fd, Channel * channel)
     {
         if (!buf_ || len_ == 0)
@@ -55,6 +57,7 @@ struct BufferWriter
                 case ECONNRESET:
                     return Channel::IoStatus::Eof;
                 default:
+                    savedErrno_ = errno;
                     return Channel::IoStatus::Error;
             }
         }
@@ -64,6 +67,7 @@ private:
     const void * buf_;
     size_t len_;
     ssize_t wroteLen_{ 0 };
+    int savedErrno_{ 0 };
 };
 
 } // namespace nitrocoro::io::adapters
