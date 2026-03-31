@@ -113,9 +113,9 @@ Task<io::StreamPtr> HttpClient::connect(const net::Url & url)
     auto addr = addresses[0];
     auto conn = co_await net::TcpConnection::connect(net::InetAddress(addr.toIp(), url.port(), addr.isIpV6()));
 
-    if (upgrader_)
+    if (upgrader_ && url.scheme() == "https")
     {
-        auto stream = co_await upgrader_(conn);
+        auto stream = co_await upgrader_(conn, url.host());
         if (!stream)
             throw std::runtime_error("Stream upgrade failed");
         co_return stream;

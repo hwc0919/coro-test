@@ -21,7 +21,7 @@ namespace nitrocoro::http
 class HttpClient
 {
 public:
-    using StreamUpgrader = std::function<Task<io::StreamPtr>(net::TcpConnectionPtr)>;
+    using StreamUpgrader = std::function<Task<io::StreamPtr>(net::TcpConnectionPtr, const std::string & hostname)>;
 
     HttpClient() = default;
 
