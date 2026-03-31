@@ -74,12 +74,12 @@ static std::pair<TlsContextPtr, TlsContextPtr> makeContexts(const std::string & 
     sp.certPem = certPem;
     sp.keyPem = keyPem;
     sp.validate = false;
-    auto serverCtx = TlsContext::create(sp, true);
+    auto serverCtx = TlsContext::createServer(sp);
 
     TlsPolicy cp;
     cp.hostname = cn;
     cp.validate = false;
-    auto clientCtx = TlsContext::create(cp, false);
+    auto clientCtx = TlsContext::createClient(cp);
 
     return { serverCtx, clientCtx };
 }
@@ -315,7 +315,7 @@ NITRO_TEST(https_sni_hostname)
     sp.certPem = certPem;
     sp.keyPem = keyPem;
     sp.validate = false;
-    auto serverCtx = TlsContext::create(sp, true);
+    auto serverCtx = TlsContext::createServer(sp);
 
     std::string capturedSni;
     HttpServer server(0);
@@ -339,7 +339,7 @@ NITRO_TEST(https_sni_hostname)
         TlsPolicy cp;
         cp.hostname = hostname;
         cp.validate = false;
-        auto clientCtx = TlsContext::create(cp, false);
+        auto clientCtx = TlsContext::createClient(cp);
         auto tlsStream = co_await TlsStream::connect(conn, clientCtx);
         co_return std::make_shared<io::Stream>(tlsStream);
     });

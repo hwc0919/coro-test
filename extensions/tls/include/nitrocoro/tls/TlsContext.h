@@ -20,7 +20,8 @@ using TlsContextPtr = std::shared_ptr<TlsContext>;
 class TlsContext
 {
 public:
-    static TlsContextPtr create(const TlsPolicy & policy, bool isServer);
+    static TlsContextPtr createServer(const TlsPolicy & policy);
+    static TlsContextPtr createClient(const TlsPolicy & policy);
 
     virtual ~TlsContext() = default;
 

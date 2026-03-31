@@ -87,13 +87,13 @@ static std::pair<TlsContextPtr, TlsContextPtr> makeContexts(const std::string & 
     sp.keyPem = keyPem;
     sp.validate = false;
     sp.alpn = alpn;
-    auto serverCtx = TlsContext::create(sp, true);
+    auto serverCtx = TlsContext::createServer(sp);
 
     TlsPolicy cp;
     cp.hostname = cn;
     cp.validate = false;
     cp.alpn = alpn;
-    auto clientCtx = TlsContext::create(cp, false);
+    auto clientCtx = TlsContext::createClient(cp);
 
     return { serverCtx, clientCtx };
 }
@@ -283,13 +283,13 @@ NITRO_TEST(tls_bad_cert_rejected)
     sp.certPem = certPem;
     sp.keyPem = keyPem;
     sp.validate = false;
-    auto serverCtx = TlsContext::create(sp, true);
+    auto serverCtx = TlsContext::createServer(sp);
 
     TlsPolicy cp;
     cp.hostname = "localhost";
     cp.validate = true;
     cp.useSystemCertStore = false;
-    auto clientCtx = TlsContext::create(cp, false);
+    auto clientCtx = TlsContext::createClient(cp);
 
     TcpServer server(0);
 
@@ -333,7 +333,7 @@ NITRO_TEST(tls_multi_sni)
         sp.certPem = certPem;
         sp.keyPem = keyPem;
         sp.validate = false;
-        return TlsContext::create(sp, true);
+        return TlsContext::createServer(sp);
     };
 
     auto ctxA = makeServerCtx(certPemA, keyPemA);
@@ -362,7 +362,7 @@ NITRO_TEST(tls_multi_sni)
         TlsPolicy cp;
         cp.hostname = host;
         cp.validate = false;
-        auto clientCtx = TlsContext::create(cp, false);
+        auto clientCtx = TlsContext::createClient(cp);
         auto conn = co_await TcpConnection::connect({"127.0.0.1", port});
         co_return co_await TlsStream::connect(conn, clientCtx);
     };

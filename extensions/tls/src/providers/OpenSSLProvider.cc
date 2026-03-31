@@ -9,7 +9,6 @@
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 
 #include <cstring>
 #include <stdexcept>
@@ -371,9 +370,14 @@ std::unique_ptr<TlsProvider> OpenSSLContext::newProvider()
     return std::make_unique<OpenSSLProvider>(this);
 }
 
-TlsContextPtr TlsContext::create(const TlsPolicy & policy, bool isServer)
+TlsContextPtr TlsContext::createServer(const TlsPolicy & policy)
 {
-    return std::make_shared<OpenSSLContext>(policy, isServer);
+    return std::make_shared<OpenSSLContext>(policy, true);
+}
+
+TlsContextPtr TlsContext::createClient(const TlsPolicy & policy)
+{
+    return std::make_shared<OpenSSLContext>(policy, false);
 }
 
 } // namespace nitrocoro::tls
