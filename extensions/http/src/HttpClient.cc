@@ -88,8 +88,7 @@ Task<IncomingResponse> HttpClient::send(ClientRequest req)
 
     auto stream = co_await connect(parsedUrl);
 
-    // Inject stream and fill in defaults
-    req.setStream(stream);
+    // Inject defaults and flush
     std::string requestTarget = parsedUrl.path();
     if (!parsedUrl.query().empty())
         requestTarget.append("?").append(parsedUrl.query());
@@ -98,7 +97,7 @@ Task<IncomingResponse> HttpClient::send(ClientRequest req)
         req.setHeader(HttpHeader::NameCode::Host, parsedUrl.host());
     if (!req.data_.headers.contains(HttpHeader::Name::Connection_L))
         req.setHeader(HttpHeader::NameCode::Connection, "close");
-    co_await req.flush();
+    co_await req.flush(stream);
 
     co_return co_await readResponse(stream, req.data_.method == methods::Head);
 }

@@ -160,7 +160,7 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
     if (std::holds_alternative<HttpParseError>(parsed))
     {
         NITRO_DEBUG("Bad request: %s", std::get<HttpParseError>(parsed).message.c_str());
-        auto response = std::make_shared<ServerResponse>(stream, false, config_.send_date_header);
+        auto response = std::make_shared<ServerResponse>(false, config_.send_date_header);
         response->setStatus(StatusCode::k400BadRequest);
         response->setCloseConnection(true);
         response->setBody("Bad Request");
@@ -177,7 +177,7 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
 
     auto method = request->method();
     bool ignoreBody = (method == methods::Head);
-    auto response = std::make_shared<ServerResponse>(stream, ignoreBody, config_.send_date_header);
+    auto response = std::make_shared<ServerResponse>(ignoreBody, config_.send_date_header);
     response->setCloseConnection(!keepAlive);
 
     if (method == methods::_Invalid)
@@ -307,7 +307,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             break;
 
         // flush resp
-        co_await result.resp->flush();
+        co_await result.resp->flush(stream);
 
         if (result.action == Action::Upgrade)
         {

@@ -76,12 +76,8 @@ void HttpOutgoingMessageBase<DataType>::setBody(BodyWriterFn bodyWriterFn)
 }
 
 template <typename DataType>
-Task<> HttpOutgoingMessageBase<DataType>::flush()
+Task<> HttpOutgoingMessageBase<DataType>::flush(io::StreamPtr stream)
 {
-    if (startSending_)
-        co_return;
-    startSending_ = true;
-
     std::unique_ptr<BodyWriter> bodyWriter;
     if (bodyWriterFn_)
     {
@@ -89,7 +85,7 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
         {
             // HTTP/1.0 does not support chunked; fall back to close-delimited
             transferMode_ = TransferMode::UntilClose;
-            bodyWriter = BodyWriter::create(TransferMode::UntilClose, stream_);
+            bodyWriter = BodyWriter::create(TransferMode::UntilClose, stream);
             if constexpr (std::is_same_v<DataType, HttpResponse>)
                 data_.shouldClose = true;
         }
@@ -100,7 +96,7 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
             if (it != data_.headers.end())
                 data_.headers.erase(it);
             setHeader(HttpHeader::NameCode::TransferEncoding, "chunked");
-            bodyWriter = BodyWriter::create(TransferMode::Chunked, stream_);
+            bodyWriter = BodyWriter::create(TransferMode::Chunked, stream);
         }
     }
     else
@@ -118,13 +114,13 @@ Task<> HttpOutgoingMessageBase<DataType>::flush()
     {
         // TODO: writev
         buf.append(body_);
-        co_await stream_->write(buf.data(), buf.size());
+        co_await stream->write(buf.data(), buf.size());
     }
     else
     {
         // assert(bodyWriter);
         // send headers
-        co_await stream_->write(buf.data(), buf.size());
+        co_await stream->write(buf.data(), buf.size());
         // send body
         BodyStream bodyStream(bodyWriter.get());
         co_await bodyWriterFn_(bodyStream);

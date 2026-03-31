@@ -12,7 +12,6 @@
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
 
-#include <memory>
 #include <string>
 #include <string_view>
 
@@ -45,12 +44,10 @@ public:
 
     HttpOutgoingMessageBase() = default;
 
-    explicit HttpOutgoingMessageBase(io::StreamPtr stream,
-                                     bool ignoreBody = false,
-                                     bool send_date_header = true)
-        : stream_(std::move(stream))
-        , ignoreBody_(ignoreBody)
-        , sendDateHeader_(send_date_header)
+    explicit HttpOutgoingMessageBase(bool ignoreBody,
+                                     bool sendDateHeader = true)
+        : ignoreBody_(ignoreBody)
+        , sendDateHeader_(sendDateHeader)
     {
     }
 
@@ -62,8 +59,9 @@ public:
     void setBody(const char * data, size_t len);
     void setBody(BodyWriterFn bodyWriterFn);
 
+    Task<> flush(io::StreamPtr stream);
+
 protected:
-    Task<> flush();
     static const char * getDefaultReason(uint16_t code);
     void buildHeaders(std::string & buf);
 
@@ -71,8 +69,6 @@ protected:
     std::string body_;
     BodyWriterFn bodyWriterFn_;
 
-    io::StreamPtr stream_;
-    bool startSending_{ false };
     TransferMode transferMode_{ TransferMode::Chunked };
     bool ignoreBody_{ false };
     bool sendDateHeader_{ true };
@@ -96,11 +92,6 @@ class HttpOutgoingMessage<HttpRequest>
 public:
     HttpOutgoingMessage() = default;
 
-    explicit HttpOutgoingMessage(io::StreamPtr stream)
-        : detail::HttpOutgoingMessageBase<HttpRequest>(std::move(stream))
-    {
-    }
-
     void setUrl(std::string url) { url_ = std::move(url); }
     void setMethod(HttpMethod method) { data_.method = method; }
     void setMethod(std::string_view method) { data_.method = HttpMethod::fromString(method); }
@@ -110,7 +101,6 @@ public:
 
 private:
     friend class HttpClient;
-    void setStream(io::StreamPtr stream) { stream_ = std::move(stream); }
 
     std::string url_;
 };
@@ -126,11 +116,11 @@ class HttpOutgoingMessage<HttpResponse>
     friend class HttpServer;
 
 public:
-    explicit HttpOutgoingMessage(io::StreamPtr stream,
-                                 bool ignoreBody = false,
+    HttpOutgoingMessage() = default;
+
+    explicit HttpOutgoingMessage(bool ignoreBody,
                                  bool send_date_header = true)
-        : detail::HttpOutgoingMessageBase<HttpResponse>(std::move(stream),
-                                                        ignoreBody,
+        : detail::HttpOutgoingMessageBase<HttpResponse>(ignoreBody,
                                                         send_date_header)
     {
     }
