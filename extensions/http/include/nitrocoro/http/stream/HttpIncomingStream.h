@@ -4,9 +4,7 @@
  */
 #pragma once
 #include <nitrocoro/http/BodyReader.h>
-#include <nitrocoro/http/HttpCompleteMessage.h>
 #include <nitrocoro/http/HttpMessage.h>
-#include <nitrocoro/http/HttpMessageAccessor.h>
 
 #include <nitrocoro/core/Task.h>
 

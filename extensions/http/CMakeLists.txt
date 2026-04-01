@@ -4,6 +4,7 @@ add_library(nitrocoro-http STATIC
     src/Cookie.cc
     src/Form.cc
     src/HttpClient.cc
+    src/HttpMessage.cc
     src/HttpMethod.cc
     src/HttpRouter.cc
     src/HttpHeader.cc

@@ -3,7 +3,7 @@
  * @brief HTTP incoming stream implementations
  */
 #include <nitrocoro/http/BodyReader.h>
-#include <nitrocoro/http/HttpCompleteMessage.h>
+#include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/stream/HttpIncomingStream.h>
 
 namespace nitrocoro::http::detail

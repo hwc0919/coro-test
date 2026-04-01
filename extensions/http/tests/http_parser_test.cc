@@ -3,7 +3,7 @@
  * @brief Tests for HttpParser
  */
 #include "../src/HttpParser.h"
-#include <nitrocoro/http/HttpMessageAccessor.h>
+#include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/testing/Test.h>
 
 using namespace nitrocoro::http;

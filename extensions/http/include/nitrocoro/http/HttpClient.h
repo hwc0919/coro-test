@@ -3,7 +3,6 @@
  * @brief HTTP client for making requests
  */
 #pragma once
-#include <nitrocoro/http/HttpCompleteMessage.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpStream.h>
 #include <nitrocoro/http/HttpTypes.h>

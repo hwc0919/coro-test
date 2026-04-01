@@ -4,7 +4,7 @@
  */
 #include <nitrocoro/http/Cookie.h>
 #include <nitrocoro/http/HttpClient.h>
-#include <nitrocoro/http/HttpMessageAccessor.h>
+#include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/testing/Test.h>
 
