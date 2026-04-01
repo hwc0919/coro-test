@@ -157,7 +157,7 @@ void HttpOutgoingMessageBase<DataType>::buildHeaders(
         {
             if (mode == TransferMode::ContentLength)
             {
-                buf.append(header.name()).append(": ").append(std::to_string(bodyLength)).append("\r\n");
+                buf.append(HttpHeader::Name::ContentLength_C).append(": ").append(std::to_string(bodyLength)).append("\r\n");
             }
             continue;
         }
@@ -169,16 +169,19 @@ void HttpOutgoingMessageBase<DataType>::buildHeaders(
                 continue;
             }
         }
-        buf.append(header.name()).append(": ").append(header.value()).append("\r\n");
+        if (header.nameCode() != HttpHeader::NameCode::Unknown)
+            buf.append(HttpHeader::codeToCanonicalName(header.nameCode()));
+        else
+            buf.append(HttpHeader::toCanonical(header.name()));
+        buf.append(": ").append(header.value()).append("\r\n");
     }
     if (mode == TransferMode::ContentLength && !data_.headers.contains(HttpHeader::Name::ContentLength_L))
     {
-        buf.append(HttpHeader::Name::ContentLength_L).append(": ").append(std::to_string(bodyLength)).append("\r\n");
+        buf.append(HttpHeader::Name::ContentLength_C).append(": ").append(std::to_string(bodyLength)).append("\r\n");
     }
     if (mode == TransferMode::Chunked && !data_.headers.contains(HttpHeader::Name::TransferEncoding_L))
     {
-        static const HttpHeader chunkedHeader(HttpHeader::NameCode::TransferEncoding, "chunked");
-        buf.append(chunkedHeader.name()).append(": ").append(chunkedHeader.value()).append("\r\n");
+        buf.append(HttpHeader::Name::TransferEncoding_C).append(": chunked\r\n");
     }
 
     // extra headers
@@ -221,11 +224,11 @@ void HttpOutgoingMessageBase<DataType>::buildHeaders(
 
         if (overrideCloseConnection)
         {
-            buf.append("connection: close\r\n");
+            buf.append("Connection: close\r\n");
         }
         else if (data_.shouldClose && !data_.headers.contains(HttpHeader::Name::Connection_L))
         {
-            buf.append("connection: close\r\n");
+            buf.append("Connection: close\r\n");
         }
     }
 }

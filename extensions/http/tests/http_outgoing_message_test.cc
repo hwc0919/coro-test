@@ -55,8 +55,8 @@ NITRO_TEST(outgoing_response_content_length)
     resp.setBody("hello");
     co_await resp.flush(stream);
 
-    NITRO_CHECK(hasHeader(mock->data, "content-length", "5"));
-    NITRO_CHECK(!hasHeader(mock->data, "transfer-encoding"));
+    NITRO_CHECK(hasHeader(mock->data, "Content-Length", "5"));
+    NITRO_CHECK(!hasHeader(mock->data, "Transfer-Encoding"));
     NITRO_CHECK(mock->data.ends_with("hello"));
 }
 
@@ -69,8 +69,8 @@ NITRO_TEST(outgoing_response_chunked)
     resp.setBody([](auto & w) -> Task<> { co_await w.write("chunk"); });
     co_await resp.flush(stream);
 
-    NITRO_CHECK(hasHeader(mock->data, "transfer-encoding", "chunked"));
-    NITRO_CHECK(!hasHeader(mock->data, "content-length"));
+    NITRO_CHECK(hasHeader(mock->data, "Transfer-Encoding", "chunked"));
+    NITRO_CHECK(!hasHeader(mock->data, "Content-Length"));
 }
 
 /** shouldClose produces Connection: close header. */
@@ -83,7 +83,7 @@ NITRO_TEST(outgoing_response_connection_close)
     resp.setBody("ok");
     co_await resp.flush(stream);
 
-    NITRO_CHECK(hasHeader(mock->data, "connection", "close"));
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
 }
 
 /** HTTP/1.0 + setBody(fn) falls back to UntilClose: no chunked header, Connection: close. */
@@ -96,8 +96,8 @@ NITRO_TEST(outgoing_response_http10_streaming_fallback)
     resp.setBody([](auto & w) -> Task<> { co_await w.write("data"); });
     co_await resp.flush(stream);
 
-    NITRO_CHECK(!hasHeader(mock->data, "transfer-encoding"));
-    NITRO_CHECK(hasHeader(mock->data, "connection", "close"));
+    NITRO_CHECK(!hasHeader(mock->data, "Transfer-Encoding"));
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
     NITRO_CHECK(mock->data.find("HTTP/1.0") != std::string::npos);
 }
 
@@ -111,8 +111,8 @@ NITRO_TEST(outgoing_response_content_length_override)
     resp.setBody("hi");
     co_await resp.flush(stream);
 
-    NITRO_CHECK(hasHeader(mock->data, "content-length", "2"));
-    NITRO_CHECK(!hasHeader(mock->data, "content-length: 999"));
+    NITRO_CHECK(hasHeader(mock->data, "Content-Length", "2"));
+    NITRO_CHECK(!hasHeader(mock->data, "Content-Length: 999"));
 }
 
 /** ClientRequest flush produces correct request line and Content-Length. */
@@ -126,7 +126,7 @@ NITRO_TEST(outgoing_request_content_length)
     co_await req.flush(stream);
 
     NITRO_CHECK(mock->data.find("POST /echo HTTP/1.1\r\n") != std::string::npos);
-    NITRO_CHECK(hasHeader(mock->data, "content-length", "4"));
+    NITRO_CHECK(hasHeader(mock->data, "Content-Length", "4"));
     NITRO_CHECK(mock->data.ends_with("ping"));
 }
 
@@ -140,8 +140,8 @@ NITRO_TEST(outgoing_request_chunked)
     req.setBody([](auto & w) -> Task<> { co_await w.write("abc"); });
     co_await req.flush(stream);
 
-    NITRO_CHECK(hasHeader(mock->data, "transfer-encoding", "chunked"));
-    NITRO_CHECK(!hasHeader(mock->data, "content-length"));
+    NITRO_CHECK(hasHeader(mock->data, "Transfer-Encoding", "chunked"));
+    NITRO_CHECK(!hasHeader(mock->data, "Content-Length"));
 }
 
 int main(int argc, char ** argv)

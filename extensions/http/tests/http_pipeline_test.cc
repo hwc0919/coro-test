@@ -31,7 +31,7 @@ static Task<std::pair<std::string, std::string>> readResponse(
     }
 
     size_t headerEnd = buf.find("\r\n\r\n") + 4;
-    auto clPos = buf.find("content-length: ");
+    auto clPos = buf.find("Content-Length: ");
     if (clPos == std::string::npos)
         throw std::runtime_error("no content-length in response");
     size_t cl = std::stoul(buf.substr(clPos + 16));

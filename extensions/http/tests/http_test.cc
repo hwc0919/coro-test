@@ -367,7 +367,7 @@ NITRO_TEST(http_chunked_keepalive)
         size_t n = co_await conn->read(buf, sizeof(buf));
         resp1.append(buf, n);
     }
-    auto clPos = resp1.find("content-length: ");
+    auto clPos = resp1.find("Content-Length: ");
     NITRO_REQUIRE(clPos != std::string::npos);
     size_t cl = std::stoul(resp1.substr(clPos + 16));
     size_t headerEnd = resp1.find("\r\n\r\n") + 4;
@@ -391,7 +391,7 @@ NITRO_TEST(http_chunked_keepalive)
         size_t n = co_await conn->read(buf, sizeof(buf));
         resp2.append(buf, n);
     }
-    auto cl2Pos = resp2.find("content-length: ");
+    auto cl2Pos = resp2.find("Content-Length: ");
     NITRO_REQUIRE(cl2Pos != std::string::npos);
     size_t cl2 = std::stoul(resp2.substr(cl2Pos + 16));
     size_t headerEnd2 = resp2.find("\r\n\r\n") + 4;
@@ -447,7 +447,7 @@ NITRO_TEST(http_expect_100_continue)
         size_t n = co_await conn->read(buf, sizeof(buf));
         resp.append(buf, n);
     }
-    auto clPos = resp.find("content-length: ");
+    auto clPos = resp.find("Content-Length: ");
     NITRO_REQUIRE(clPos != std::string::npos);
     size_t cl = std::stoul(resp.substr(clPos + 16));
     size_t headerEnd = resp.find("\r\n\r\n") + 4;
