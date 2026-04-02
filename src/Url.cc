@@ -38,6 +38,9 @@ void Url::parse(std::string_view url)
         hostEnd = url.size();
     }
 
+    baseUrl_ = url.substr(0, hostEnd);
+    fullPath_ = hostEnd < url.size() && url[hostEnd] != '?' ? std::string(url.substr(hostEnd)) : "/" + std::string(url.substr(hostEnd));
+
     std::string_view hostPart = url.substr(pos, hostEnd - pos);
     size_t portPos = hostPart.find(':');
     if (portPos != std::string_view::npos)
