@@ -10,12 +10,10 @@ using namespace nitrocoro::http;
 
 Task<> client_main(const char * url)
 {
-    HttpClient client;
-
     printf("GET %s\n", url);
     try
     {
-        auto resp = co_await client.get(url);
+        auto resp = co_await get(url);
         printf("Status: %d %s\n", (int)resp.statusCode(), resp.statusReason().data());
         printf("Body: %s\n", resp.body().c_str());
     }

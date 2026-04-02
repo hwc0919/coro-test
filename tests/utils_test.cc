@@ -4,6 +4,7 @@
 #include <nitrocoro/utils/Md5.h>
 #include <nitrocoro/utils/Sha1.h>
 
+using namespace nitrocoro;
 using namespace nitrocoro::utils;
 
 // ── Format ───────────────────────────────────────────────────────────────────

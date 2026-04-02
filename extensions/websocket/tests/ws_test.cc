@@ -149,8 +149,7 @@ NITRO_TEST(ws_http_coexist)
     ws.attachTo(server);
     co_await startServer(server);
 
-    http::HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/ping");
+    auto resp = co_await http::get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/ping");
     NITRO_CHECK_EQ(resp.statusCode(), http::StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "pong");
 

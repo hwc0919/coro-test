@@ -8,6 +8,7 @@
 #include <nitrocoro/net/InetAddress.h>
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
+#include <nitrocoro/utils/Format.h>
 
 #include <iomanip>
 #include <sstream>
@@ -35,8 +36,7 @@ NITRO_TEST(http_get_hello)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/hello");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/hello", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "hello world");
 
@@ -53,9 +53,8 @@ NITRO_TEST(http_post_echo)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.post(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/echo", "ping");
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    auto resp = co_await client.post("/echo", "ping");
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "ping");
 
@@ -68,8 +67,7 @@ NITRO_TEST(http_404)
     HttpServer server(0);
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/missing");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/missing", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k404NotFound);
 
     co_await server.stop();
@@ -84,9 +82,7 @@ NITRO_TEST(http_query_params)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/greet?name=World");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/greet?name=World", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "Hello, World!");
 
@@ -104,9 +100,7 @@ NITRO_TEST(http_headers)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/headers");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/headers", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.getHeader(HttpHeader::NameCode::ContentType), "text/plain");
 
@@ -141,11 +135,10 @@ NITRO_TEST(http_multiple_requests)
     });
     co_await start_server(server);
 
-    std::string base = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/count";
-    HttpClient client;
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
     for (int i = 1; i <= 3; ++i)
     {
-        auto resp = co_await client.get(base);
+        auto resp = co_await client.get("/count");
         NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
         NITRO_CHECK_EQ(resp.body(), std::to_string(i));
     }
@@ -166,9 +159,8 @@ NITRO_TEST(router_shared_across_servers)
     co_await start_server(s1);
     co_await start_server(s2);
 
-    HttpClient client;
-    auto r1 = co_await client.get("http://127.0.0.1:" + std::to_string(s1.listeningPort()) + "/ping");
-    auto r2 = co_await client.get("http://127.0.0.1:" + std::to_string(s2.listeningPort()) + "/ping");
+    auto r1 = co_await get(utils::format("http://127.0.0.1:{}/ping", s1.listeningPort()));
+    auto r2 = co_await get(utils::format("http://127.0.0.1:{}/ping", s2.listeningPort()));
     NITRO_CHECK_EQ(r1.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(r1.body(), "pong");
     NITRO_CHECK_EQ(r2.statusCode(), StatusCode::k200OK);
@@ -187,8 +179,7 @@ NITRO_TEST(router_method_mismatch_405)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/data", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k405MethodNotAllowed);
 
     co_await server.stop();
@@ -203,9 +194,8 @@ NITRO_TEST(http_path_percent_encoding)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/hello%20world");
+    auto resp = co_await get(
+        utils::format("http://127.0.0.1:{}/hello%20world", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "/hello world");
 
@@ -221,9 +211,8 @@ NITRO_TEST(http_query_decode)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/q?a=hello%20world&b=hello+world");
+    auto resp = co_await get(
+        utils::format("http://127.0.0.1:{}/q?a=hello%20world&b=hello+world", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "hello world|hello world");
 
@@ -239,9 +228,8 @@ NITRO_TEST(http_path_invalid_encoding)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/foo%zz");
+    auto resp = co_await get(
+        utils::format("http://127.0.0.1:{}/foo%zz", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "/foo%zz");
 
@@ -257,17 +245,19 @@ NITRO_TEST(http_head)
     });
     co_await start_server(server);
 
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data";
-    HttpClient client;
-
-    auto getResp = co_await client.get(url);
+    auto getResp = co_await get(utils::format("http://127.0.0.1:{}/data", server.listeningPort()));
     NITRO_CHECK_EQ(getResp.statusCode(), StatusCode::k200OK);
     auto expectedLen = getResp.getHeader(HttpHeader::NameCode::ContentLength);
 
-    auto headResp = co_await client.request(methods::Head, url);
-    NITRO_CHECK_EQ(headResp.statusCode(), StatusCode::k200OK);
-    NITRO_CHECK(headResp.body().empty());
-    NITRO_CHECK_EQ(headResp.getHeader(HttpHeader::NameCode::ContentLength), expectedLen);
+    ClientRequest headReq;
+    headReq.setMethod(methods::Head);
+    headReq.setPath("/data");
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    auto headResp = co_await client.request(std::move(headReq));
+    auto headComplete = co_await headResp.toCompleteResponse();
+    NITRO_CHECK_EQ(headComplete.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK(headComplete.body().empty());
+    NITRO_CHECK_EQ(headComplete.getHeader(HttpHeader::NameCode::ContentLength), expectedLen);
 
     co_await server.stop();
 }
@@ -281,12 +271,13 @@ NITRO_TEST(http_options_registered_path)
     });
     co_await start_server(server);
 
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data";
-    HttpClient client;
-    auto resp = co_await client.request(methods::Options, url);
-    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
-    NITRO_CHECK(resp.body().empty());
-    auto allow = resp.getHeader(HttpHeader::NameCode::Allow);
+    ClientRequest optReq;
+    optReq.setMethod(methods::Options);
+    auto resp = co_await request(utils::format("http://127.0.0.1:{}/data", server.listeningPort()), std::move(optReq));
+    auto complete = co_await resp.toCompleteResponse();
+    NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK(complete.body().empty());
+    auto allow = complete.getHeader(HttpHeader::NameCode::Allow);
     NITRO_CHECK(allow.find("GET") != std::string::npos);
     NITRO_CHECK(allow.find("POST") != std::string::npos);
 
@@ -299,10 +290,12 @@ NITRO_TEST(http_options_not_found)
     HttpServer server(0);
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.request(
-        methods::Options, "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/missing");
-    NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k404NotFound);
+    ClientRequest optReq;
+    optReq.setMethod(methods::Options);
+    auto resp = co_await request(
+        utils::format("http://127.0.0.1:{}/missing", server.listeningPort()), std::move(optReq));
+    auto complete = co_await resp.toCompleteResponse();
+    NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k404NotFound);
 
     co_await server.stop();
 }
@@ -319,13 +312,10 @@ NITRO_TEST(http_handler_throws)
     });
     co_await start_server(server);
 
-    std::string base = "http://127.0.0.1:" + std::to_string(server.listeningPort());
-
-    auto resp = co_await HttpClient{}.get(base + "/throw");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/throw", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k500InternalServerError);
 
-    // Server still works after handler threw
-    auto resp2 = co_await HttpClient{}.get(base + "/ok");
+    auto resp2 = co_await get(utils::format("http://127.0.0.1:{}/ok", server.listeningPort()));
     NITRO_CHECK_EQ(resp2.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp2.body(), "ok");
 
@@ -549,8 +539,6 @@ NITRO_TEST(http_expect_unknown)
 /** Date header: present with correct RFC 7231 format by default, absent when disabled. */
 NITRO_TEST(http_date_header)
 {
-    HttpClient client;
-
     {
         HttpServer server(0);
         server.route("/", { "GET" }, [](auto req, auto resp) {
@@ -558,7 +546,7 @@ NITRO_TEST(http_date_header)
         });
         co_await start_server(server);
 
-        auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+        auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
         const auto & date = resp.getHeader(HttpHeader::NameCode::Date);
         NITRO_CHECK(!date.empty());
         std::tm tm{};
@@ -575,7 +563,7 @@ NITRO_TEST(http_date_header)
         });
         co_await start_server(server);
 
-        auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+        auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
         NITRO_CHECK(resp.getHeader(HttpHeader::NameCode::Date).empty());
         co_await server.stop();
     }
@@ -591,9 +579,8 @@ NITRO_TEST(http_path_params)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/users/42/posts/99");
+    auto resp = co_await get(
+        utils::format("http://127.0.0.1:{}/users/42/posts/99", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "42,99");
 
@@ -609,9 +596,8 @@ NITRO_TEST(http_route_regex)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/items/123");
+    auto resp = co_await get(
+        utils::format("http://127.0.0.1:{}/items/123", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "123");
 

@@ -7,6 +7,7 @@
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/testing/Test.h>
+#include <nitrocoro/utils/Format.h>
 
 #include "../src/HttpParser.h"
 
@@ -268,24 +269,22 @@ NITRO_TEST(cookie_response_parser_multiple)
 NITRO_TEST(cookie_integration_server_set)
 {
     uint16_t port = 19901;
-    Scheduler::current()->spawn([port]() -> Task<> {
-        HttpServer server(port);
-        server.route("/set", { "GET" }, [](auto req, auto resp) {
-            resp->addCookie(Cookie{
-                .name = "session",
-                .value = "abc123",
-                .path = "/",
-                .httpOnly = true,
-            });
-            resp->setBody("ok");
+    HttpServer server(port);
+    server.route("/set", { "GET" }, [](auto req, auto resp) {
+        resp->addCookie(Cookie{
+            .name = "session",
+            .value = "abc123",
+            .path = "/",
+            .httpOnly = true,
         });
+        resp->setBody("ok");
+    });
+    Scheduler::current()->spawn([&]() -> Task<> {
         co_await server.start();
     });
+    co_await server.started();
 
-    co_await sleep(10ms);
-
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/set");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/set", port));
     NITRO_CHECK_EQ(resp.statusCode(), 200);
     NITRO_REQUIRE_EQ(resp.cookies().size(), 1);
     NITRO_CHECK_EQ(resp.cookies()[0].name, "session");
@@ -308,12 +307,10 @@ NITRO_TEST(cookie_integration_client_send)
 
     co_await sleep(10ms);
 
-    HttpClient client;
     ClientRequest req;
-    req.setUrl("http://127.0.0.1:" + std::to_string(port) + "/echo");
     req.setMethod(methods::Get);
     req.setCookie("token", "secret");
-    auto resp = co_await client.send(std::move(req));
+    auto resp = co_await request(utils::format("http://127.0.0.1:{}/echo", port), std::move(req));
     auto complete = co_await resp.toCompleteResponse();
     NITRO_CHECK_EQ(complete.statusCode(), 200);
     NITRO_CHECK_EQ(complete.body(), "secret");
@@ -323,20 +320,18 @@ NITRO_TEST(cookie_integration_client_send)
 NITRO_TEST(cookie_integration_multiple_set_cookies)
 {
     uint16_t port = 19903;
-    Scheduler::current()->spawn([port]() -> Task<> {
-        HttpServer server(port);
-        server.route("/multi", { "GET" }, [](auto req, auto resp) {
-            resp->addCookie(Cookie{ .name = "a", .value = "1" });
-            resp->addCookie(Cookie{ .name = "b", .value = "2", .secure = true });
-            resp->addCookie(Cookie{ .name = "c", .value = "3", .sameSite = Cookie::SameSite::Strict });
-        });
+    HttpServer server(port);
+    server.route("/multi", { "GET" }, [](auto req, auto resp) {
+        resp->addCookie(Cookie{ .name = "a", .value = "1" });
+        resp->addCookie(Cookie{ .name = "b", .value = "2", .secure = true });
+        resp->addCookie(Cookie{ .name = "c", .value = "3", .sameSite = Cookie::SameSite::Strict });
+    });
+    Scheduler::current()->spawn([&]() -> Task<> {
         co_await server.start();
     });
+    co_await server.started();
 
-    co_await sleep(10ms);
-
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/multi");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/multi", port));
     NITRO_CHECK_EQ(resp.statusCode(), 200);
     NITRO_REQUIRE_EQ(resp.cookies().size(), 3);
     NITRO_CHECK_EQ(resp.cookies()[0].name, "a");

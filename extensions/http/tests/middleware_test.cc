@@ -6,6 +6,8 @@
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/testing/Test.h>
 
+#include <nitrocoro/utils/Format.h>
+
 using namespace nitrocoro;
 using namespace nitrocoro::http;
 
@@ -34,8 +36,7 @@ NITRO_TEST(middleware_single)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK(middlewareCalled);
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "ok");
@@ -65,8 +66,7 @@ NITRO_TEST(middleware_order)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK_EQ(log, "A-before;B-before;handler;B-after;A-after;");
 
     co_await server.stop();
@@ -90,8 +90,7 @@ NITRO_TEST(middleware_short_circuit)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK(!handlerCalled);
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k401Unauthorized);
     NITRO_CHECK_EQ(resp.body(), "Unauthorized");
@@ -114,8 +113,7 @@ NITRO_TEST(middleware_path_params)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/users/42");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/users/42", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(capturedId, "42");
 
@@ -136,8 +134,7 @@ NITRO_TEST(middleware_after_override_body)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "overridden");
 
@@ -160,8 +157,7 @@ NITRO_TEST(middleware_after_override_status_and_header)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k201Created);
     NITRO_CHECK_EQ(resp.getHeader("x-custom"), "injected");
 
@@ -181,12 +177,10 @@ NITRO_TEST(middleware_throws)
     });
     co_await start_server(server);
 
-    std::string base = "http://127.0.0.1:" + std::to_string(server.listeningPort());
-
-    auto resp = co_await HttpClient{}.get(base + "/");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k500InternalServerError);
 
-    auto resp2 = co_await HttpClient{}.get(base + "/");
+    auto resp2 = co_await get(utils::format("http://127.0.0.1:{}/", server.listeningPort()));
     NITRO_CHECK_EQ(resp2.statusCode(), StatusCode::k500InternalServerError);
 
     co_await server.stop();

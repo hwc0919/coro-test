@@ -6,7 +6,9 @@
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/net/InetAddress.h>
 #include <nitrocoro/net/TcpConnection.h>
+
 #include <nitrocoro/testing/Test.h>
+#include <nitrocoro/utils/Format.h>
 
 using namespace nitrocoro;
 using namespace nitrocoro::http;
@@ -34,8 +36,8 @@ NITRO_TEST(server_streaming_response)
     });
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/stream");
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    auto resp = co_await client.get("/stream");
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "hello world");
 
@@ -56,17 +58,17 @@ NITRO_TEST(client_streaming_request)
     std::string data = "Hello World from streaming client!";
     std::vector<std::string> chunks = { data.substr(0, 6), data.substr(6, 6), data.substr(12) };
 
-    HttpClient client;
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
     ClientRequest req;
-    req.setUrl("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/echo");
     req.setMethod(methods::Post);
+    req.setPath("/echo");
     req.setBody([chunks = std::move(chunks)](auto & writer) -> Task<> {
         for (auto && chunk : chunks)
         {
             co_await writer.write(chunk);
         }
     });
-    auto resp = co_await client.send(std::move(req));
+    auto resp = co_await client.request(std::move(req));
     auto complete = co_await resp.toCompleteResponse();
     NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(complete.body(), data);
@@ -120,12 +122,12 @@ NITRO_TEST(complete_message_body_and_metadata)
     });
     co_await start_server(server);
 
-    HttpClient client;
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
     ClientRequest req;
-    req.setUrl("http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/echo");
     req.setMethod(methods::Post);
+    req.setPath("/echo");
     req.setBody("hello");
-    auto resp = co_await client.send(std::move(req));
+    auto resp = co_await client.request(std::move(req));
     auto complete = co_await resp.toCompleteResponse();
     NITRO_CHECK_EQ(complete.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(complete.body(), "hello");

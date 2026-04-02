@@ -7,6 +7,7 @@
 #include <nitrocoro/http/StaticFiles.h>
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
+#include <nitrocoro/utils/Format.h>
 
 #include <atomic>
 #include <fcntl.h>
@@ -63,7 +64,6 @@ static Task<std::string> rawHttp(uint16_t port, std::string req)
 
 static int statusCode(const std::string & resp)
 {
-    // "HTTP/1.1 XXX"
     auto pos = resp.find(' ');
     if (pos == std::string::npos)
         return 0;
@@ -72,7 +72,6 @@ static int statusCode(const std::string & resp)
 
 static std::string getHeader(const std::string & resp, std::string_view name)
 {
-    // case-insensitive search for "name: value\r\n"
     std::string lower = resp;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     std::string lname(name);
@@ -97,9 +96,7 @@ NITRO_TEST(static_files_serve_file)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/hello.txt");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/hello.txt", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "hello world");
     NITRO_CHECK(resp.getHeader("content-type").find("text/plain") != std::string::npos);
@@ -116,9 +113,7 @@ NITRO_TEST(static_files_not_found)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/missing.txt");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/missing.txt", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k404NotFound);
 
     co_await server.stop();
@@ -133,10 +128,7 @@ NITRO_TEST(static_files_path_traversal)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    // %2F is '/', so this becomes ../../etc/passwd after decoding
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/../../etc/passwd");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/../../etc/passwd", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k403Forbidden);
 
     co_await server.stop();
@@ -153,9 +145,9 @@ NITRO_TEST(static_files_etag_304)
     co_await start_server(server);
 
     uint16_t port = server.listeningPort();
-    HttpClient client;
+    HttpClient client(utils::format("http://127.0.0.1:{}", port));
 
-    auto resp1 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/data.txt");
+    auto resp1 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp1.statusCode(), StatusCode::k200OK);
     const std::string & etag = resp1.getHeader("etag");
     NITRO_REQUIRE(!etag.empty());
@@ -182,9 +174,9 @@ NITRO_TEST(static_files_last_modified_304)
     co_await start_server(server);
 
     uint16_t port = server.listeningPort();
-    HttpClient client;
+    HttpClient client(utils::format("http://127.0.0.1:{}", port));
 
-    auto resp1 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/data.txt");
+    auto resp1 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp1.statusCode(), StatusCode::k200OK);
     const std::string & lm = resp1.getHeader("last-modified");
     NITRO_REQUIRE(!lm.empty());
@@ -210,10 +202,12 @@ NITRO_TEST(static_files_head)
     server.route("/*path", { "GET", "HEAD" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/page.html";
-    HttpClient client;
-
-    auto resp = co_await client.request(methods::Head, url);
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    ClientRequest headReq;
+    headReq.setMethod(methods::Head);
+    headReq.setPath("/page.html");
+    auto headResp = co_await client.request(std::move(headReq));
+    auto resp = co_await headResp.toCompleteResponse();
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK(resp.body().empty());
     NITRO_CHECK(!resp.getHeader("content-length").empty());
@@ -234,14 +228,13 @@ NITRO_TEST(static_files_root_and_wildcard_variants)
         HttpServer server(0);
         server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
         co_await start_server(server);
-        HttpClient client;
-        uint16_t port = server.listeningPort();
+        HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-        auto r1 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/");
+        auto r1 = co_await client.get("/");
         NITRO_CHECK_EQ(r1.statusCode(), StatusCode::k200OK);
         NITRO_CHECK_EQ(r1.body(), "<h1>root</h1>");
 
-        auto r2 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/hello.txt");
+        auto r2 = co_await client.get("/hello.txt");
         NITRO_CHECK_EQ(r2.statusCode(), StatusCode::k200OK);
         NITRO_CHECK_EQ(r2.body(), "hello");
         co_await server.stop();
@@ -252,14 +245,13 @@ NITRO_TEST(static_files_root_and_wildcard_variants)
         HttpServer server(0);
         server.route("/*", { "GET" }, staticFiles(dir.path.string()));
         co_await start_server(server);
-        HttpClient client;
-        uint16_t port = server.listeningPort();
+        HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-        auto r1 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/");
+        auto r1 = co_await client.get("/");
         NITRO_CHECK_EQ(r1.statusCode(), StatusCode::k200OK);
         NITRO_CHECK_EQ(r1.body(), "<h1>root</h1>");
 
-        auto r2 = co_await client.get("http://127.0.0.1:" + std::to_string(port) + "/hello.txt");
+        auto r2 = co_await client.get("/hello.txt");
         NITRO_CHECK_EQ(r2.statusCode(), StatusCode::k200OK);
         NITRO_CHECK_EQ(r2.body(), "hello");
         co_await server.stop();
@@ -276,9 +268,7 @@ NITRO_TEST(static_files_subpath_mount)
     server.route("/static/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/static/hello.txt");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/static/hello.txt", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.body(), "hello");
 
@@ -295,9 +285,7 @@ NITRO_TEST(static_files_cache_control_max_age)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string(), { .max_age = 3600 }));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/style.css");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/style.css", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK(resp.getHeader("cache-control").find("max-age=3600") != std::string::npos);
 
@@ -309,7 +297,6 @@ NITRO_TEST(static_files_precompressed_gzip)
 {
     TempDir dir;
     dir.write("app.js", "console.log('hello')");
-    // minimal valid gzip bytes
     static constexpr unsigned char kGzip[] = {
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
         0x4b, 0xce, 0xcf, 0x2b, 0xce, 0xcf, 0x49, 0xd5, 0x51, 0x48,
@@ -347,7 +334,6 @@ NITRO_TEST(static_files_precompressed_accept_order)
         0x54, 0xc8, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x27, 0x00, 0x00,
         0x00, 0xff, 0xff, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    // minimal brotli: single empty meta-block
     static constexpr unsigned char kBr[] = { 0x3b };
     dir.write("app.js.gz", std::string_view(reinterpret_cast<const char *>(kGzip), sizeof(kGzip)));
     dir.write("app.js.br", std::string_view(reinterpret_cast<const char *>(kBr), sizeof(kBr)));
@@ -379,9 +365,7 @@ NITRO_TEST(static_files_unknown_mime_type)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data.xyz");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/data.xyz", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.getHeader("content-type"), "application/octet-stream");
 
@@ -401,9 +385,7 @@ NITRO_TEST(static_files_custom_mime_type)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string(), std::move(opts)));
     co_await start_server(server);
 
-    HttpClient client;
-    auto resp = co_await client.get(
-        "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data.custom");
+    auto resp = co_await get(utils::format("http://127.0.0.1:{}/data.custom", server.listeningPort()));
     NITRO_CHECK_EQ(resp.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp.getHeader("content-type"), "application/x-custom");
 
@@ -418,7 +400,6 @@ NITRO_TEST(static_files_encoding_not_used)
     static constexpr unsigned char kBr[] = { 0x3b };
     dir.write("app.js.br", std::string_view(reinterpret_cast<const char *>(kBr), sizeof(kBr)));
 
-    // unknown encoding: zstd not registered
     {
         HttpServer server(0);
         server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
@@ -431,7 +412,6 @@ NITRO_TEST(static_files_encoding_not_used)
         co_await server.stop();
     }
 
-    // disabled encoding: br exists on disk but removed from accept_encodings
     {
         auto opts = StaticFilesOptions{};
         opts.accept_encodings = { { "gzip", "gz" } };
@@ -460,14 +440,13 @@ NITRO_TEST(static_files_cache_hit)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string(), std::move(opts)));
     co_await start_server(server);
 
-    HttpClient client;
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data.txt";
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-    auto resp1 = co_await client.get(url);
+    auto resp1 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp1.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp1.getHeader("x-cache"), "MISS");
 
-    auto resp2 = co_await client.get(url);
+    auto resp2 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp2.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp2.getHeader("x-cache"), "HIT");
     NITRO_CHECK_EQ(resp2.body(), "hello");
@@ -489,19 +468,16 @@ NITRO_TEST(static_files_cache_stale)
     server.route("/*path", { "GET" }, staticFiles(dir.path.string(), std::move(opts)));
     co_await start_server(server);
 
-    HttpClient client;
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data.txt";
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-    auto resp1 = co_await client.get(url);
+    auto resp1 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp1.body(), "original");
     NITRO_CHECK_EQ(resp1.getHeader("x-cache"), "MISS");
 
-    // modify file — mtime/etag changes → stale
-    // sleep 1s to ensure mtime changes (filesystem mtime precision may be 1s)
     co_await nitrocoro::sleep(std::chrono::seconds(1));
     dir.write("data.txt", "updated");
 
-    auto resp2 = co_await client.get(url);
+    auto resp2 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp2.statusCode(), StatusCode::k200OK);
     NITRO_CHECK_EQ(resp2.body(), "updated");
     NITRO_CHECK_EQ(resp2.getHeader("x-cache"), "MISS");
@@ -517,22 +493,20 @@ NITRO_TEST(static_files_cache_max_file_size)
 
     StaticFilesOptions opts;
     opts.cache_ttl = 60;
-    opts.cache_max_file_size = 5; // only cache files <= 5 bytes
+    opts.cache_max_file_size = 5;
 
     HttpServer server(0);
     server.route("/*path", { "GET" }, staticFiles(dir.path.string(), std::move(opts)));
     co_await start_server(server);
 
-    HttpClient client;
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/big.txt";
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-    auto resp1 = co_await client.get(url);
+    auto resp1 = co_await client.get("/big.txt");
     NITRO_CHECK_EQ(resp1.body(), std::string(10, 'x'));
 
-    // modify file — should be reflected immediately since not cached
     dir.write("big.txt", std::string(10, 'y'));
 
-    auto resp2 = co_await client.get(url);
+    auto resp2 = co_await client.get("/big.txt");
     NITRO_CHECK_EQ(resp2.body(), std::string(10, 'y'));
 
     co_await server.stop();
@@ -545,18 +519,17 @@ NITRO_TEST(static_files_cache_disabled)
     dir.write("data.txt", "v1");
 
     HttpServer server(0);
-    server.route("/*path", { "GET" }, staticFiles(dir.path.string())); // cache_ttl=0
+    server.route("/*path", { "GET" }, staticFiles(dir.path.string()));
     co_await start_server(server);
 
-    HttpClient client;
-    std::string url = "http://127.0.0.1:" + std::to_string(server.listeningPort()) + "/data.txt";
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
 
-    auto resp1 = co_await client.get(url);
+    auto resp1 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp1.body(), "v1");
 
     dir.write("data.txt", "v2");
 
-    auto resp2 = co_await client.get(url);
+    auto resp2 = co_await client.get("/data.txt");
     NITRO_CHECK_EQ(resp2.body(), "v2");
 
     co_await server.stop();

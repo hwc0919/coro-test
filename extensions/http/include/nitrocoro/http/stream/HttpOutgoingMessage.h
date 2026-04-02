@@ -90,17 +90,14 @@ class HttpOutgoingMessage<HttpRequest>
 public:
     HttpOutgoingMessage() = default;
 
-    void setUrl(std::string url) { url_ = std::move(url); }
     void setMethod(HttpMethod method) { data_.method = method; }
     void setMethod(std::string_view method) { data_.method = HttpMethod::fromString(method); }
-    void setPath(const std::string & path) { data_.path = path; }
+    void setPath(std::string path) { data_.path = std::move(path); }
     void setVersion(Version version) { data_.version = version; }
     void setCookie(const std::string & name, std::string value) { data_.cookies[name] = std::move(value); }
 
 private:
     friend class HttpClient;
-
-    std::string url_;
 };
 
 // ============================================================================
