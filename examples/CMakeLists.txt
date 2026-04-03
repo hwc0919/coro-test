@@ -19,3 +19,8 @@ if(BUILD_EXT_WEBSOCKET)
     add_executable(websocket_server websocket_server.cc)
     target_link_libraries(websocket_server PRIVATE nitrocoro-websocket)
 endif()
+
+if (BUILD_EXT_HTTPS)
+    add_executable(https_client https_client.cc)
+    target_link_libraries(https_client PRIVATE nitrocoro-https)
+endif()
