@@ -2,6 +2,7 @@ add_library(nitrocoro-http STATIC
     src/BodyReader.cc
     src/BodyWriter.cc
     src/Cookie.cc
+    src/CookieStore.cc
     src/Form.cc
     src/HttpClient.cc
     src/HttpMessage.cc
@@ -44,6 +45,10 @@ install(DIRECTORY include/nitrocoro
 option(BUILD_TESTING "Build tests" ON)
 if (BUILD_TESTING)
     enable_testing()
+    add_executable(http_client_test tests/http_client_test.cc)
+    target_link_libraries(http_client_test PRIVATE nitrocoro-http)
+    add_test(NAME http_client_test COMMAND http_client_test)
+
     add_executable(http_stream_test tests/http_stream_test.cc)
     target_link_libraries(http_stream_test PRIVATE nitrocoro-http)
     add_test(NAME http_stream_test COMMAND http_stream_test)
@@ -71,6 +76,10 @@ if (BUILD_TESTING)
     add_executable(static_files_test tests/static_files_test.cc)
     target_link_libraries(static_files_test PRIVATE nitrocoro-http)
     add_test(NAME static_files_test COMMAND static_files_test)
+
+    add_executable(cookie_store_test tests/cookie_store_test.cc)
+    target_link_libraries(cookie_store_test PRIVATE nitrocoro-http)
+    add_test(NAME cookie_store_test COMMAND cookie_store_test)
 
     add_executable(cookie_test tests/cookie_test.cc)
     target_link_libraries(cookie_test PRIVATE nitrocoro-http)

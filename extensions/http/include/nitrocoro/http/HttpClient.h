@@ -4,9 +4,9 @@
  */
 #pragma once
 #include <nitrocoro/core/Mutex.h>
+#include <nitrocoro/http/CookieStore.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpStream.h>
-#include <nitrocoro/http/HttpTypes.h>
 
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
@@ -25,6 +25,7 @@ struct HttpClientConfig
     size_t max_idle_connections = 8;
     std::chrono::seconds idle_timeout = std::chrono::seconds(60);
     bool add_host_header = true;
+    CookieStoreFactory cookieStoreFactory = nullptr;
 };
 
 class HttpClient
@@ -58,10 +59,15 @@ protected:
     Task<io::StreamPtr> acquireConnection();
     Task<> releaseConnection(io::StreamPtr stream);
     Task<io::StreamPtr> connect();
+    void injectCookies(ClientRequest & req, const std::string & path);
+    void collectCookies(const std::string & path, const std::vector<Cookie> & cookies);
 
     net::Url baseUrl_;
     HttpClientConfig config_;
     StreamUpgrader upgrader_;
+    bool isHttps_;
+    Mutex cookieMutex_;
+    std::unique_ptr<CookieStore> cookieStore_;
     Mutex mutex_;
     std::vector<IdleConnection> idleConnections_;
 };

@@ -53,6 +53,8 @@ HttpClient::HttpClient(std::string baseUrl, HttpClientConfig config)
 HttpClient::HttpClient(net::Url url, HttpClientConfig config)
     : baseUrl_(std::move(url))
     , config_(std::move(config))
+    , isHttps_(baseUrl_.scheme() == "https")
+    , cookieStore_(config_.cookieStoreFactory ? config_.cookieStoreFactory() : nullptr)
 {
     if (!baseUrl_.isValid())
         throw std::invalid_argument("Invalid base URL");
@@ -64,9 +66,15 @@ Task<HttpCompleteResponse> HttpClient::get(std::string path)
 {
     ClientRequest req;
     req.setMethod(methods::Get);
-    req.setPath(std::move(path));
+    req.setPath(path);
     if (config_.add_host_header)
+    {
         req.setHeader(HttpHeader::NameCode::Host, baseUrl_.host());
+    }
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        injectCookies(req, path);
+    }
 
     auto stream = co_await acquireConnection();
     auto buffer = std::make_shared<utils::StringBuffer>();
@@ -84,6 +92,10 @@ Task<HttpCompleteResponse> HttpClient::get(std::string path)
     auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, ignoreBody ? 0 : msg.contentLength);
     IncomingResponse resp(std::move(msg), std::move(bodyReader));
     auto complete = co_await resp.toCompleteResponse();
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        collectCookies(path, complete.cookies());
+    }
     if (!shouldClose)
         co_await releaseConnection(std::move(stream));
     co_return complete;
@@ -93,10 +105,16 @@ Task<HttpCompleteResponse> HttpClient::post(std::string path, std::string body)
 {
     ClientRequest req;
     req.setMethod(methods::Post);
-    req.setPath(std::move(path));
+    req.setPath(path);
     req.setBody(std::move(body));
     if (config_.add_host_header)
+    {
         req.setHeader(HttpHeader::NameCode::Host, baseUrl_.host());
+    }
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        injectCookies(req, path);
+    }
 
     auto stream = co_await acquireConnection();
     auto buffer = std::make_shared<utils::StringBuffer>();
@@ -113,6 +131,10 @@ Task<HttpCompleteResponse> HttpClient::post(std::string path, std::string body)
     auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, msg.contentLength);
     IncomingResponse resp(std::move(msg), std::move(bodyReader));
     auto complete = co_await resp.toCompleteResponse();
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        collectCookies(path, complete.cookies());
+    }
     if (!shouldClose)
         co_await releaseConnection(std::move(stream));
     co_return complete;
@@ -120,6 +142,12 @@ Task<HttpCompleteResponse> HttpClient::post(std::string path, std::string body)
 
 Task<IncomingResponse> HttpClient::request(ClientRequest req)
 {
+    auto path = req.data_.path;
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        injectCookies(req, path);
+    }
+
     auto stream = co_await acquireConnection();
     auto buffer = std::make_shared<utils::StringBuffer>();
     co_await req.flush(stream);
@@ -131,6 +159,10 @@ Task<IncomingResponse> HttpClient::request(ClientRequest req)
         throw std::runtime_error(std::get<HttpParseError>(result).message);
 
     auto & msg = std::get<HttpResponse>(result);
+    {
+        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
+        collectCookies(path, msg.cookies);
+    }
     bool ignoreBody = req.data_.method == methods::Head;
     auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, ignoreBody ? 0 : msg.contentLength);
     co_return IncomingResponse(std::move(msg), std::move(bodyReader));
@@ -155,6 +187,25 @@ Task<> HttpClient::releaseConnection(io::StreamPtr stream)
     [[maybe_unused]] auto lock = co_await mutex_.scoped_lock();
     if (idleConnections_.size() < config_.max_idle_connections)
         idleConnections_.push_back({ std::move(stream), std::chrono::steady_clock::now() });
+}
+
+void HttpClient::injectCookies(ClientRequest & req, const std::string & path)
+{
+    if (!cookieStore_)
+        return;
+    for (auto & c : cookieStore_->load(path))
+    {
+        if (c.secure && !isHttps_)
+            continue;
+        req.setCookie(c.name, c.value);
+    }
+}
+
+void HttpClient::collectCookies(const std::string & path, const std::vector<Cookie> & cookies)
+{
+    if (!cookieStore_)
+        return;
+    cookieStore_->store(path, cookies);
 }
 
 Task<io::StreamPtr> HttpClient::connect()
