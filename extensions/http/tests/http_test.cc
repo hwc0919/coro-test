@@ -630,6 +630,55 @@ NITRO_TEST(http_bad_request)
     co_await server.stop();
 }
 
+/** Two consecutive requests on the same HttpClient reuse the same connection. */
+NITRO_TEST(http_client_keep_alive)
+{
+    std::atomic<int> connectionCount{ 0 };
+
+    HttpServer server(0);
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("pong");
+    });
+    server.setStreamUpgrader([&connectionCount](net::TcpConnectionPtr conn) -> Task<io::StreamPtr> {
+        ++connectionCount;
+        co_return std::make_shared<io::Stream>(conn);
+    });
+    co_await start_server(server);
+
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    co_await client.get("/ping");
+    co_await client.get("/ping");
+
+    NITRO_CHECK_EQ(connectionCount.load(), 1);
+
+    co_await server.stop();
+}
+
+/** Server responds with Connection: close; client opens a new connection for the next request. */
+NITRO_TEST(http_client_connection_close)
+{
+    std::atomic<int> connectionCount{ 0 };
+
+    HttpServer server(0);
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
+        resp->setHeader(HttpHeader::NameCode::Connection, "close");
+        resp->setBody("pong");
+    });
+    server.setStreamUpgrader([&connectionCount](net::TcpConnectionPtr conn) -> Task<io::StreamPtr> {
+        ++connectionCount;
+        co_return std::make_shared<io::Stream>(conn);
+    });
+    co_await start_server(server);
+
+    HttpClient client(utils::format("http://127.0.0.1:{}", server.listeningPort()));
+    co_await client.get("/ping");
+    co_await client.get("/ping");
+
+    NITRO_CHECK_EQ(connectionCount.load(), 2);
+
+    co_await server.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
