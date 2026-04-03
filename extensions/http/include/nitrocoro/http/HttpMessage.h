@@ -92,6 +92,7 @@ public:
     Version version() const { return message_.version; }
     uint16_t statusCode() const { return message_.statusCode; }
     const std::string & statusReason() const { return message_.statusReason; }
+    bool shouldClose() const { return message_.shouldClose; }
 
     const HttpHeaderMap & headers() const { return message_.headers; }
     const std::string & getHeader(std::string_view name) const;

@@ -60,6 +60,8 @@ protected:
     Task<io::StreamPtr> acquireConnection();
     Task<> releaseConnection(io::StreamPtr stream);
     Task<io::StreamPtr> connect();
+    Task<IncomingResponse> doRequest(ClientRequest req, io::StreamPtr stream);
+
     void injectCookies(ClientRequest & req, const std::string & path);
     void collectCookies(const std::string & path, const std::vector<Cookie> & cookies);
 

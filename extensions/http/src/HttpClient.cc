@@ -62,24 +62,19 @@ HttpClient::HttpClient(net::Url url, HttpClientConfig config)
 
 HttpClient::~HttpClient() = default;
 
-Task<HttpCompleteResponse> HttpClient::get(std::string path)
+Task<IncomingResponse> HttpClient::doRequest(ClientRequest req, io::StreamPtr stream)
 {
-    ClientRequest req;
-    req.setMethod(methods::Get);
-    req.setPath(path);
     if (config_.add_host_header)
     {
         req.setHeader(HttpHeader::NameCode::Host, baseUrl_.host());
     }
     {
         [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        injectCookies(req, path);
+        injectCookies(req, req.data_.path);
     }
-
-    auto stream = co_await acquireConnection();
-    auto buffer = std::make_shared<utils::StringBuffer>();
     co_await req.flush(stream);
 
+    auto buffer = std::make_shared<utils::StringBuffer>();
     auto result = co_await parseResponse(stream, buffer);
     if (std::holds_alternative<std::monostate>(result))
         throw std::runtime_error("Connection closed");
@@ -87,16 +82,26 @@ Task<HttpCompleteResponse> HttpClient::get(std::string path)
         throw std::runtime_error(std::get<HttpParseError>(result).message);
 
     auto & msg = std::get<HttpResponse>(result);
-    bool shouldClose = msg.shouldClose || msg.transferMode == TransferMode::UntilClose;
-    bool ignoreBody = req.data_.method == methods::Head;
-    auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, ignoreBody ? 0 : msg.contentLength);
-    IncomingResponse resp(std::move(msg), std::move(bodyReader));
-    auto complete = co_await resp.toCompleteResponse();
     {
         [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        collectCookies(path, complete.cookies());
+        collectCookies(req.data_.path, msg.cookies);
     }
-    if (!shouldClose)
+
+    bool ignoreBody = req.data_.method == methods::Head;
+    auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, ignoreBody ? 0 : msg.contentLength);
+    co_return IncomingResponse(std::move(msg), std::move(bodyReader));
+}
+
+Task<HttpCompleteResponse> HttpClient::get(std::string path)
+{
+    ClientRequest req;
+    req.setMethod(methods::Get);
+    req.setPath(std::move(path));
+
+    auto stream = co_await acquireConnection();
+    auto resp = co_await doRequest(std::move(req), stream);
+    auto complete = co_await resp.toCompleteResponse();
+    if (!complete.shouldClose())
         co_await releaseConnection(std::move(stream));
     co_return complete;
 }
@@ -105,67 +110,22 @@ Task<HttpCompleteResponse> HttpClient::post(std::string path, std::string body)
 {
     ClientRequest req;
     req.setMethod(methods::Post);
-    req.setPath(path);
+    req.setPath(std::move(path));
     req.setBody(std::move(body));
-    if (config_.add_host_header)
-    {
-        req.setHeader(HttpHeader::NameCode::Host, baseUrl_.host());
-    }
-    {
-        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        injectCookies(req, path);
-    }
 
     auto stream = co_await acquireConnection();
-    auto buffer = std::make_shared<utils::StringBuffer>();
-    co_await req.flush(stream);
-
-    auto result = co_await parseResponse(stream, buffer);
-    if (std::holds_alternative<std::monostate>(result))
-        throw std::runtime_error("Connection closed");
-    if (std::holds_alternative<HttpParseError>(result))
-        throw std::runtime_error(std::get<HttpParseError>(result).message);
-
-    auto & msg = std::get<HttpResponse>(result);
-    bool shouldClose = msg.shouldClose || msg.transferMode == TransferMode::UntilClose;
-    auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, msg.contentLength);
-    IncomingResponse resp(std::move(msg), std::move(bodyReader));
+    auto resp = co_await doRequest(std::move(req), stream);
     auto complete = co_await resp.toCompleteResponse();
-    {
-        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        collectCookies(path, complete.cookies());
-    }
-    if (!shouldClose)
+    if (!complete.shouldClose())
         co_await releaseConnection(std::move(stream));
     co_return complete;
 }
 
 Task<IncomingResponse> HttpClient::request(ClientRequest req)
 {
-    auto path = req.data_.path;
-    {
-        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        injectCookies(req, path);
-    }
-
     auto stream = co_await acquireConnection();
-    auto buffer = std::make_shared<utils::StringBuffer>();
-    co_await req.flush(stream);
-
-    auto result = co_await parseResponse(stream, buffer);
-    if (std::holds_alternative<std::monostate>(result))
-        throw std::runtime_error("Connection closed");
-    if (std::holds_alternative<HttpParseError>(result))
-        throw std::runtime_error(std::get<HttpParseError>(result).message);
-
-    auto & msg = std::get<HttpResponse>(result);
-    {
-        [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
-        collectCookies(path, msg.cookies);
-    }
-    bool ignoreBody = req.data_.method == methods::Head;
-    auto bodyReader = BodyReader::create(stream, buffer, msg.transferMode, ignoreBody ? 0 : msg.contentLength);
-    co_return IncomingResponse(std::move(msg), std::move(bodyReader));
+    auto resp = co_await doRequest(std::move(req), stream);
+    co_return resp;
 }
 
 Task<io::StreamPtr> HttpClient::acquireConnection()
