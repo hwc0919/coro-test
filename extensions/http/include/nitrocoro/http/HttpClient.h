@@ -14,6 +14,7 @@
 #include <nitrocoro/net/Url.h>
 
 #include <chrono>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -69,7 +70,7 @@ protected:
     Mutex cookieMutex_;
     std::unique_ptr<CookieStore> cookieStore_;
     Mutex mutex_;
-    std::vector<IdleConnection> idleConnections_;
+    std::deque<IdleConnection> idleConnections_;
 };
 
 Task<HttpCompleteResponse> get(std::string url);

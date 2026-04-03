@@ -170,14 +170,14 @@ Task<IncomingResponse> HttpClient::request(ClientRequest req)
 
 Task<io::StreamPtr> HttpClient::acquireConnection()
 {
+    [[maybe_unused]] auto lock = co_await mutex_.scoped_lock();
+    auto now = std::chrono::steady_clock::now();
+    while (!idleConnections_.empty())
     {
-        [[maybe_unused]] auto lock = co_await mutex_.scoped_lock();
-        if (!idleConnections_.empty())
-        {
-            auto idle = std::move(idleConnections_.back());
-            idleConnections_.pop_back();
+        auto idle = std::move(idleConnections_.front());
+        idleConnections_.pop_front();
+        if (now - idle.idleAt < config_.idle_timeout)
             co_return std::move(idle.stream);
-        }
     }
     co_return co_await connect();
 }
