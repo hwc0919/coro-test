@@ -317,6 +317,32 @@ NITRO_TEST(http_client_no_cookie_store)
     co_await server.stop();
 }
 
+/** Dead connection in idle pool is discarded; client reconnects transparently. */
+NITRO_TEST(http_client_reconnects_after_peer_close)
+{
+    HttpServer server1(0);
+    server1.route("/hello", { "GET" }, [](auto req, auto resp) { resp->setBody("first"); });
+    co_await start_server(server1);
+    int port = server1.listeningPort();
+
+    HttpClient client(utils::format("http://127.0.0.1:{}", port));
+    auto resp1 = co_await client.get("/hello");
+    NITRO_CHECK_EQ(resp1.body(), "first");
+
+    co_await server1.stop();
+    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(50));
+
+    HttpServer server2(port);
+    server2.route("/hello", { "GET" }, [](auto req, auto resp) { resp->setBody("second"); });
+    co_await start_server(server2);
+
+    auto resp2 = co_await client.get("/hello");
+    NITRO_CHECK_EQ(resp2.statusCode(), StatusCode::k200OK);
+    NITRO_CHECK_EQ(resp2.body(), "second");
+
+    co_await server2.stop();
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);
