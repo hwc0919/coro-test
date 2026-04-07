@@ -136,7 +136,7 @@ Task<io::StreamPtr> HttpClient::acquireConnection()
     {
         auto idle = std::move(idleConnections_.front());
         idleConnections_.pop_front();
-        if (now - idle.idleAt < config_.idle_timeout)
+        if (now - idle.idleAt < config_.idle_timeout && !idle.stream->peerClosed())
             co_return std::move(idle.stream);
     }
     co_return co_await connect();

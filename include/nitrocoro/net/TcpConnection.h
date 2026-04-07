@@ -49,6 +49,7 @@ public:
     };
 
     State state() const { return state_->load(); }
+    bool peerClosed() const { return ioChannelPtr_->peerClosed(); }
     const InetAddress & localAddr() const { return localAddr_; }
     const InetAddress & peerAddr() const { return peerAddr_; }
 

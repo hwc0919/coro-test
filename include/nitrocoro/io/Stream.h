@@ -46,6 +46,7 @@ public:
     Task<size_t> read(void * buf, size_t len) { return holder_->read(buf, len); }
     Task<size_t> write(const void * buf, size_t len) { return holder_->write(buf, len); }
     Task<> shutdown() { return holder_->shutdown(); }
+    bool peerClosed() { return holder_->peerClosed(); }
 
 private:
     struct HolderBase
@@ -54,6 +55,7 @@ private:
         virtual Task<size_t> read(void * buf, size_t len) = 0;
         virtual Task<size_t> write(const void * buf, size_t len) = 0;
         virtual Task<> shutdown() = 0;
+        virtual bool peerClosed() const = 0;
     };
 
     template <typename S>
@@ -66,6 +68,13 @@ private:
         Task<size_t> read(void * buf, size_t len) override { co_return co_await stream->read(buf, len); }
         Task<size_t> write(const void * buf, size_t len) override { co_return co_await stream->write(buf, len); }
         Task<> shutdown() override { co_await stream->shutdown(); }
+        bool peerClosed() const override
+        {
+            if constexpr (requires { stream->peerClosed(); })
+                return stream->peerClosed();
+            else
+                return false;
+        }
     };
 
     std::shared_ptr<HolderBase> holder_;

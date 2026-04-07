@@ -37,6 +37,7 @@ public:
     Task<size_t> read(void * buf, size_t len);
     Task<size_t> write(const void * buf, size_t len);
     Task<> shutdown();
+    bool peerClosed() const { return conn_->peerClosed(); }
 
     std::string sniName() const;
     std::string negotiatedAlpn() const;
