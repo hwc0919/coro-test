@@ -8,6 +8,7 @@ add_library(nitrocoro-http STATIC
     src/HttpMessage.cc
     src/HttpMethod.cc
     src/HttpRouter.cc
+    src/RouterCore.cc
     src/HttpHeader.cc
     src/HttpIncomingStream.cc
     src/HttpOutgoingMessage.cc

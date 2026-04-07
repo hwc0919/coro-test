@@ -6,10 +6,8 @@
 
 #include <nitrocoro/http/HttpHandler.h>
 #include <nitrocoro/http/HttpTypes.h>
+#include <nitrocoro/http/RouterCore.h>
 
-#include <map>
-#include <memory>
-#include <regex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -121,7 +119,7 @@ public:
     };
 
     template <typename F>
-    void addRoute(const std::string & path, MethodList methods, F && handler);
+    void addRoute(const std::string & path, const MethodList & methods, F && handler);
     template <typename F>
     void addRouteRegex(const std::string & pattern, const MethodList & methods, F && handler);
 
@@ -129,69 +127,37 @@ public:
     RouteResult route(HttpMethod method, const std::string & path) const;
 
 private:
-    struct Entry
-    {
-        std::unordered_map<HttpMethod, HttpHandlerPtr> handlers;
-        std::string allowedMethods;
-    };
-
-    struct RadixNode;
-    using RadixNodeMap = std::map<std::string, std::unique_ptr<RadixNode>, std::less<>>;
-    struct RadixNode
-    {
-        Entry entry;
-        RadixNodeMap children;         // static segments
-        RadixNodeMap paramChildren;    // key = param name (:id → node)
-        RadixNodeMap wildcardChildren; // key = wildcard name (*path → node)
-    };
-
-    struct RegexEntry
-    {
-        std::string pattern;
-        std::regex regex;
-        Entry entry;
-    };
-
-    void addRouteImpl(const std::string & path, const MethodList & methods, HttpHandlerPtr handler);
-
-    static void checkInvalidMethods(const MethodList & methods);
-    static void addMethodToEntry(Entry & entry, HttpMethod method, const HttpHandlerPtr & handler);
-    static void insertRadix(RadixNode & node, std::string_view path, const MethodList & methods, const HttpHandlerPtr & handler);
-    static const Entry * matchRadix(const RadixNode & node, std::string_view path, PathParams & params, size_t depth = 0);
-
-    std::unordered_map<std::string, Entry> exactRoutes_;
-    RadixNode radixRoot_;
-    std::vector<RegexEntry> regexRoutes_;
+    RouterCore core_;
+    std::vector<HttpHandlerPtr> handlers_;
 };
 
 template <typename F>
-void HttpRouter::addRoute(const std::string & path, MethodList methods, F && handler)
+void HttpRouter::addRoute(const std::string & path, const MethodList & methods, F && handler)
 {
-    checkInvalidMethods(methods);
+    HttpHandlerPtr handlerPtr;
     if constexpr (std::is_same_v<std::decay_t<F>, HttpHandlerPtr>)
-        addRouteImpl(path, methods, std::forward<F>(handler));
+        handlerPtr = std::forward<F>(handler);
     else
-        addRouteImpl(path, methods, makeHttpHandler(std::forward<F>(handler)));
+        handlerPtr = makeHttpHandler(std::forward<F>(handler));
+
+    size_t routeId = core_.addRoute(path, methods.methods_);
+    if (routeId >= handlers_.size())
+    {
+        handlers_.resize(routeId + 1);
+    }
+    handlers_[routeId] = handlerPtr;
 }
 
 template <typename F>
 void HttpRouter::addRouteRegex(const std::string & pattern, const MethodList & methods, F && handler)
 {
-    checkInvalidMethods(methods);
-    auto handlerPtr = makeHttpHandler(std::forward<F>(handler));
-    for (auto & r : regexRoutes_)
+    HttpHandlerPtr handlerPtr = makeHttpHandler(std::forward<F>(handler));
+    size_t routeId = core_.addRouteRegex(pattern, methods.methods_);
+    if (routeId >= handlers_.size())
     {
-        if (r.pattern == pattern)
-        {
-            for (const auto & method : methods.methods_)
-                addMethodToEntry(r.entry, method, handlerPtr);
-            return;
-        }
+        handlers_.resize(routeId + 1);
     }
-    Entry entry;
-    for (const auto & method : methods.methods_)
-        addMethodToEntry(entry, method, handlerPtr);
-    regexRoutes_.push_back({ pattern, std::regex(pattern), std::move(entry) });
+    handlers_[routeId] = handlerPtr;
 }
 
 } // namespace nitrocoro::http
