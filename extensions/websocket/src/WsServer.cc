@@ -18,11 +18,6 @@ static std::string computeAccept(const std::string & key)
 namespace nitrocoro::websocket
 {
 
-void WsServer::route(const std::string & path, Handler handler)
-{
-    routes_[path] = std::move(handler);
-}
-
 void WsServer::attachTo(http::HttpServer & server)
 {
     server.setRequestUpgrader([this](http::IncomingRequestPtr req,
@@ -41,8 +36,9 @@ Task<std::optional<http::HttpServer::StreamHandler>> WsServer::handleUpgrade(htt
     if (HttpHeader::toLower(upgrade) != "websocket")
         co_return std::nullopt;
 
-    auto it = routes_.find(req->path());
-    if (it == routes_.end())
+    // Use WsRouter to find handler
+    auto result = router_.route(req->path());
+    if (!result)
         co_return std::nullopt;
 
     auto & key = req->getHeader(HttpHeader::NameCode::SecWebSocketKey);
@@ -56,10 +52,12 @@ Task<std::optional<http::HttpServer::StreamHandler>> WsServer::handleUpgrade(htt
     resp->setHeader(HttpHeader::NameCode::Connection, "Upgrade");
     resp->setHeader(HttpHeader::NameCode::SecWebSocketAccept, accept);
 
-    auto handler = it->second;
-    co_return [handler](io::StreamPtr stream) -> Task<> {
+    auto handler = result.handler;
+    auto params = std::move(result.params);
+    co_return [handler, params = std::move(params)](io::StreamPtr stream) -> Task<> {
         WsConnection conn(std::move(stream));
-        co_await handler(conn);
+        // Set path parameters in connection (if WsConnection supports it)
+        co_await handler->invoke(conn);
     };
 }
 

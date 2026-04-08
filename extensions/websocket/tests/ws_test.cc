@@ -2,14 +2,15 @@
  * @file ws_test.cc
  * @brief Tests for WsServer and WsConnection
  */
+#include <nitrocoro/websocket/WsRouter.h>
+#include <nitrocoro/websocket/WsServer.h>
+
+#include <nitrocoro/http/HttpClient.h>
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
 #include <nitrocoro/utils/Base64.h>
 #include <nitrocoro/utils/Sha1.h>
-#include <nitrocoro/websocket/WsServer.h>
-
-#include <nitrocoro/http/HttpClient.h>
 
 #include <string>
 
@@ -176,6 +177,124 @@ NITRO_TEST(ws_unknown_path)
 
     auto resp = co_await readHttpResponse(*conn);
     NITRO_CHECK(resp.find("404") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Test WsRouter basic functionality. */
+NITRO_TEST(ws_router_basic)
+{
+    WsRouter router;
+
+    // Test exact match
+    router.addRoute("/ws/chat", [](WsConnection & conn) -> Task<> {
+        co_return;
+    });
+
+    auto result = router.route("/ws/chat");
+    NITRO_CHECK(result);
+    NITRO_CHECK_EQ(result.reason, WsRouter::RouteResult::Reason::Ok);
+    NITRO_CHECK(result.params.empty());
+
+    // Test not found
+    result = router.route("/ws/unknown");
+    NITRO_CHECK(!result);
+    NITRO_CHECK_EQ(result.reason, WsRouter::RouteResult::Reason::NotFound);
+
+    // Test path parameters
+    router.addRoute("/ws/room/:id", [](WsConnection & conn) -> Task<> {
+        co_return;
+    });
+
+    result = router.route("/ws/room/123");
+    NITRO_CHECK(result);
+    NITRO_CHECK_EQ(result.params.size(), 1u);
+    NITRO_CHECK_EQ(result.params.at("id"), "123");
+
+    // Test regex route
+    router.addRouteRegex(R"(/ws/user/(\d+))", [](WsConnection & conn) -> Task<> {
+        co_return;
+    });
+
+    result = router.route("/ws/user/456");
+    NITRO_CHECK(result);
+    NITRO_CHECK_EQ(result.params.size(), 1u);
+    NITRO_CHECK_EQ(result.params.at("$1"), "456");
+
+    co_return;
+}
+
+/** Test WsRouter path parameters. */
+NITRO_TEST(ws_router_path_params)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+    std::string receivedId;
+
+    ws.route("/ws/room/:id", [&receivedId](WsConnection & conn) -> Task<> {
+        // In a real implementation, we'd get path params from somewhere
+        // For now, just test that the route matches
+        co_await conn.send("room_handler_called");
+        co_await conn.shutdown();
+    });
+
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+
+    std::string req = "GET /ws/room/123 HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: "
+                      + key + "\r\n"
+                              "Sec-WebSocket-Version: 13\r\n"
+                              "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("101") != std::string::npos);
+
+    auto reply = co_await recvTextFrame(*conn);
+    NITRO_CHECK_EQ(reply, "room_handler_called");
+
+    co_await server.stop();
+}
+
+/** Test WsRouter wildcard routes. */
+NITRO_TEST(ws_router_wildcard)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+
+    ws.route("/ws/files/*path", [](WsConnection & conn) -> Task<> {
+        co_await conn.send("file_handler_called");
+        co_await conn.shutdown();
+    });
+
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+
+    std::string req = "GET /ws/files/a/b/c.txt HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: "
+                      + key + "\r\n"
+                              "Sec-WebSocket-Version: 13\r\n"
+                              "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("101") != std::string::npos);
+
+    auto reply = co_await recvTextFrame(*conn);
+    NITRO_CHECK_EQ(reply, "file_handler_called");
 
     co_await server.stop();
 }

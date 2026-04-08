@@ -1,6 +1,7 @@
 add_library(nitrocoro-websocket STATIC
     src/WsConnection.cc
     src/WsServer.cc
+    src/WsRouter.cc
 )
 
 target_include_directories(nitrocoro-websocket PUBLIC
