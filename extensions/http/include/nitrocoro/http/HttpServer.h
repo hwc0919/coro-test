@@ -33,7 +33,7 @@ public:
     // RequestUpgrader: called when request has "Connection: Upgrade".
     // Returns a StreamHandler to take over the connection, or nullopt to decline.
     // HttpServer flushes the response before invoking the StreamHandler.
-    using RequestUpgrader = std::function<Task<std::optional<StreamHandler>>(IncomingRequestPtr, ServerResponsePtr)>;
+    using RequestUpgrader = std::function<Task<StreamHandler>(IncomingRequestPtr, ServerResponsePtr)>;
 
     explicit HttpServer(uint16_t port, Scheduler * scheduler = Scheduler::current());
     explicit HttpServer(HttpServerConfig config, Scheduler * scheduler = Scheduler::current());

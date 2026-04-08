@@ -6,6 +6,7 @@
 #include <nitrocoro/websocket/WsServer.h>
 
 #include <nitrocoro/http/HttpClient.h>
+#include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
@@ -101,7 +102,8 @@ NITRO_TEST(ws_echo)
 {
     http::HttpServer server(0);
     WsServer ws;
-    ws.route("/ws", [](WsConnection & conn) -> Task<> {
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
         while (auto msg = co_await conn.receive())
             co_await conn.send(msg->payload);
     });
@@ -140,11 +142,12 @@ NITRO_TEST(ws_echo)
 NITRO_TEST(ws_http_coexist)
 {
     http::HttpServer server(0);
-    server.route("/ping", { "GET" }, [](auto, auto resp) {
+    server.route("/ping", { "GET" }, [](auto req, auto resp) {
         resp->setBody("pong");
     });
     WsServer ws;
-    ws.route("/ws", [](WsConnection & conn) -> Task<> {
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
         co_await conn.shutdown();
     });
     ws.attachTo(server);
@@ -187,22 +190,21 @@ NITRO_TEST(ws_router_basic)
     WsRouter router;
 
     // Test exact match
-    router.addRoute("/ws/chat", [](WsConnection & conn) -> Task<> {
+    router.addRoute("/ws/chat", [](WsContextPtr) -> Task<> {
         co_return;
     });
 
     auto result = router.route("/ws/chat");
     NITRO_CHECK(result);
-    NITRO_CHECK_EQ(result.reason, WsRouter::RouteResult::Reason::Ok);
+    NITRO_CHECK(result.handler);
     NITRO_CHECK(result.params.empty());
 
     // Test not found
     result = router.route("/ws/unknown");
     NITRO_CHECK(!result);
-    NITRO_CHECK_EQ(result.reason, WsRouter::RouteResult::Reason::NotFound);
 
     // Test path parameters
-    router.addRoute("/ws/room/:id", [](WsConnection & conn) -> Task<> {
+    router.addRoute("/ws/room/:id", [](WsContextPtr) -> Task<> {
         co_return;
     });
 
@@ -212,7 +214,7 @@ NITRO_TEST(ws_router_basic)
     NITRO_CHECK_EQ(result.params.at("id"), "123");
 
     // Test regex route
-    router.addRouteRegex(R"(/ws/user/(\d+))", [](WsConnection & conn) -> Task<> {
+    router.addRouteRegex(R"(/ws/user/(\d+))", [](WsContextPtr) -> Task<> {
         co_return;
     });
 
@@ -231,10 +233,10 @@ NITRO_TEST(ws_router_path_params)
     WsServer ws;
     std::string receivedId;
 
-    ws.route("/ws/room/:id", [&receivedId](WsConnection & conn) -> Task<> {
-        // In a real implementation, we'd get path params from somewhere
-        // For now, just test that the route matches
-        co_await conn.send("room_handler_called");
+    ws.route("/ws/room/:id", [&receivedId](WsContextPtr wsCtx) -> Task<> {
+        receivedId = wsCtx->req->pathParams().at("id");
+        auto conn = co_await wsCtx->accept();
+        co_await conn.send(receivedId);
         co_await conn.shutdown();
     });
 
@@ -258,7 +260,74 @@ NITRO_TEST(ws_router_path_params)
     NITRO_CHECK(resp.find("101") != std::string::npos);
 
     auto reply = co_await recvTextFrame(*conn);
-    NITRO_CHECK_EQ(reply, "room_handler_called");
+    NITRO_CHECK_EQ(reply, "123");
+    NITRO_CHECK_EQ(receivedId, "123");
+
+    co_await server.stop();
+}
+
+/** Handler reads req headers and sets custom resp headers before accept(). */
+NITRO_TEST(ws_context_req_resp)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+
+    ws.route("/ws", [&TEST_CTX](WsContextPtr wsCtx) -> Task<> {
+        auto & key = wsCtx->req->getHeader(http::HttpHeader::NameCode::SecWebSocketKey);
+        NITRO_REQUIRE(!key.empty());
+        wsCtx->resp->setHeader("X-Custom-Header", "nitrocoro-ws");
+        auto conn = co_await wsCtx->accept();
+        co_await conn.shutdown();
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: "
+                      + key + "\r\n"
+                              "Sec-WebSocket-Version: 13\r\n"
+                              "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("101") != std::string::npos);
+    NITRO_CHECK(resp.find("X-Custom-Header: nitrocoro-ws") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Handler rejects the upgrade by not calling accept() — server returns 403. */
+NITRO_TEST(ws_context_reject)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        wsCtx->resp->setStatus(http::StatusCode::k403Forbidden);
+        wsCtx->resp->setBody("forbidden");
+        // wsCtx destructor fires accepted_=false → acceptPromise_.set_value(false)
+        co_return;
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                      "Sec-WebSocket-Version: 13\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("403") != std::string::npos);
 
     co_await server.stop();
 }
@@ -269,7 +338,8 @@ NITRO_TEST(ws_router_wildcard)
     http::HttpServer server(0);
     WsServer ws;
 
-    ws.route("/ws/files/*path", [](WsConnection & conn) -> Task<> {
+    ws.route("/ws/files/*path", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
         co_await conn.send("file_handler_called");
         co_await conn.shutdown();
     });

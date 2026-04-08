@@ -5,7 +5,7 @@
 #pragma once
 
 #include <nitrocoro/http/RouterCore.h>
-#include <nitrocoro/websocket/WsConnection.h>
+#include <nitrocoro/websocket/WsContext.h>
 
 #include <nitrocoro/core/Task.h>
 
@@ -18,7 +18,7 @@ namespace nitrocoro::websocket
 
 struct WsHandlerBase
 {
-    virtual Task<> invoke(WsConnection & conn) = 0;
+    virtual Task<> invoke(WsContextPtr ctx) = 0;
     virtual ~WsHandlerBase() = default;
 };
 
@@ -30,9 +30,9 @@ struct WsHandler : WsHandlerBase
     explicit WsHandler(F f)
         : f_(std::move(f)) {}
 
-    Task<> invoke(WsConnection & conn) override
+    Task<> invoke(WsContextPtr ctx) override
     {
-        co_await f_(conn);
+        co_await f_(std::move(ctx));
     }
 
     F f_;
@@ -60,15 +60,8 @@ public:
 
     struct RouteResult
     {
-        enum class Reason
-        {
-            Ok,
-            NotFound
-        };
-
         WsHandlerPtr handler;
         PathParams params;
-        Reason reason{ Reason::NotFound };
 
         explicit operator bool() const { return handler != nullptr; }
     };

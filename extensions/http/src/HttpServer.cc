@@ -192,7 +192,7 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
         auto handler = co_await requestUpgrader_(request, response);
         if (handler)
         {
-            co_return { Action::Upgrade, std::move(response), std::move(bodyReader), std::move(*handler) };
+            co_return { Action::Upgrade, std::move(response), std::move(bodyReader), std::move(handler) };
         }
     }
 

@@ -6,7 +6,9 @@
 
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/utils/Base64.h>
+#include <nitrocoro/utils/Debug.h>
 #include <nitrocoro/utils/Sha1.h>
+#include <nitrocoro/websocket/WsContext.h>
 #include <nitrocoro/websocket/WsTypes.h>
 
 static std::string computeAccept(const std::string & key)
@@ -21,29 +23,29 @@ namespace nitrocoro::websocket
 void WsServer::attachTo(http::HttpServer & server)
 {
     server.setRequestUpgrader([this](http::IncomingRequestPtr req,
-                                     http::ServerResponsePtr resp) -> Task<std::optional<http::HttpServer::StreamHandler>> {
+                                     http::ServerResponsePtr resp) -> Task<http::HttpServer::StreamHandler> {
         co_return co_await handleUpgrade(req, resp);
     });
 }
 
-Task<std::optional<http::HttpServer::StreamHandler>> WsServer::handleUpgrade(http::IncomingRequestPtr req,
-                                                                             http::ServerResponsePtr resp)
+Task<http::HttpServer::StreamHandler> WsServer::handleUpgrade(http::IncomingRequestPtr req,
+                                                              http::ServerResponsePtr resp)
 {
     using http::HttpHeader;
 
     // Only handle WebSocket upgrades
     auto & upgrade = req->getHeader(HttpHeader::NameCode::Upgrade);
     if (HttpHeader::toLower(upgrade) != "websocket")
-        co_return std::nullopt;
+        co_return nullptr;
 
     // Use WsRouter to find handler
     auto result = router_.route(req->path());
     if (!result)
-        co_return std::nullopt;
+        co_return nullptr;
 
     auto & key = req->getHeader(HttpHeader::NameCode::SecWebSocketKey);
     if (key.empty())
-        co_return std::nullopt;
+        co_return nullptr;
 
     std::string accept = computeAccept(key);
 
@@ -52,12 +54,39 @@ Task<std::optional<http::HttpServer::StreamHandler>> WsServer::handleUpgrade(htt
     resp->setHeader(HttpHeader::NameCode::Connection, "Upgrade");
     resp->setHeader(HttpHeader::NameCode::SecWebSocketAccept, accept);
 
-    auto handler = result.handler;
-    auto params = std::move(result.params);
-    co_return [handler, params = std::move(params)](io::StreamPtr stream) -> Task<> {
+    req->pathParams() = std::move(std::move(result.params));
+    auto connPromisePtr = std::make_shared<Promise<WsConnection>>();
+    auto ctx = std::make_shared<WsContext>(req, resp, connPromisePtr->get_future());
+
+    Scheduler::current()->spawn([ctx, handler = std::move(result.handler)]() mutable -> Task<> {
+        try
+        {
+            co_await handler->invoke(std::move(ctx));
+        }
+        catch (const std::exception & ex)
+        {
+            NITRO_ERROR("WsServer handler unhandled exception: %s", ex.what());
+        }
+        catch (...)
+        {
+            NITRO_ERROR("WsServer handler unknown exception");
+        }
+    });
+    auto acceptFuture = ctx->acceptPromise_.get_future();
+    ctx.reset(); // allow ctx to destruct
+
+    bool accepted = co_await acceptFuture.get();
+    if (!accepted)
+    {
+        co_return [](io::StreamPtr) -> Task<> {
+            co_return;
+        };
+    }
+
+    co_return [connPromisePtr](io::StreamPtr stream) -> Task<> {
         WsConnection conn(std::move(stream));
-        // Set path parameters in connection (if WsConnection supports it)
-        co_await handler->invoke(conn);
+        connPromisePtr->set_value(std::move(conn));
+        co_return;
     };
 }
 

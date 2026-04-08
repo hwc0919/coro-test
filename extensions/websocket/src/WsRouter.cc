@@ -16,7 +16,7 @@ WsRouter::RouteResult WsRouter::route(const std::string & path) const
     {
         if (result.routeId < handlers_.size() && handlers_[result.routeId])
         {
-            return { handlers_[result.routeId], std::move(result.params), RouteResult::Reason::Ok };
+            return { handlers_[result.routeId], std::move(result.params) };
         }
     }
 

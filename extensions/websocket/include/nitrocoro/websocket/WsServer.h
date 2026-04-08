@@ -6,6 +6,7 @@
 
 #include <nitrocoro/http/HttpServer.h>
 #include <nitrocoro/websocket/WsConnection.h>
+#include <nitrocoro/websocket/WsContext.h>
 #include <nitrocoro/websocket/WsRouter.h>
 
 #include <functional>
@@ -28,8 +29,8 @@ public:
     void attachTo(http::HttpServer & server);
 
 private:
-    Task<std::optional<http::HttpServer::StreamHandler>> handleUpgrade(http::IncomingRequestPtr req,
-                                                                       http::ServerResponsePtr resp);
+    Task<http::HttpServer::StreamHandler> handleUpgrade(http::IncomingRequestPtr req,
+                                                        http::ServerResponsePtr resp);
     WsRouter router_;
 };
 

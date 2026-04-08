@@ -23,7 +23,8 @@ Task<> run(uint16_t port)
     HttpServer server(port);
     WsServer ws;
 
-    ws.route("/ws", [](WsConnection & conn) -> Task<> {
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
         printf("client connected\n");
         while (auto msg = co_await conn.receive())
         {
