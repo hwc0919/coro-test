@@ -34,7 +34,7 @@ Socket & Socket::operator=(Socket && other) noexcept
 
 void Socket::shutdownWrite() noexcept
 {
-    if (::shutdown(fd_, SHUT_WR) < 0)
+    if (::shutdown(fd_, SHUT_WR) < 0 && errno != ENOTCONN)
         NITRO_ERROR("shutdownWrite fd %d failed: %s", fd_, strerror(errno));
 }
 

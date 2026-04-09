@@ -120,8 +120,6 @@ void HttpServer::use(Middleware middleware)
 
 Task<> HttpServer::start()
 {
-    NITRO_INFO("HTTP server listening on port %hu", port_);
-
     co_await server_->start([this](net::TcpConnectionPtr conn) -> Task<> {
         try
         {

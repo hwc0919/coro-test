@@ -1,4 +1,5 @@
 add_library(nitrocoro-websocket STATIC
+    src/WsClient.cc
     src/WsConnection.cc
     src/WsContextImpl.cc
     src/WsServer.cc

@@ -71,6 +71,13 @@ Task<std::optional<WsMessage>> WsConnection::receive()
                 payloadLen = (payloadLen << 8) | ext[i];
         }
 
+        if (masked != (role_ == Role::Server))
+        {
+            co_await sendFrame(static_cast<uint8_t>(Opcode::Close), "\x03\xEA", 2);
+            co_await stream_->shutdown();
+            throw std::runtime_error("WsConnection: masking violation");
+        }
+
         uint8_t maskKey[4] = {};
         if (masked)
             co_await readExact(*stream_, maskKey, 4);
@@ -106,10 +113,11 @@ Task<std::optional<WsMessage>> WsConnection::receive()
 
 // ── send ─────────────────────────────────────────────────────────────────────
 
-Task<> WsConnection::sendFrame(uint8_t opcode, const void * data, size_t len, bool mask)
+Task<> WsConnection::sendFrame(uint8_t opcode, const void * data, size_t len)
 {
+    bool mask = (role_ == Role::Client);
     std::vector<uint8_t> frame;
-    frame.reserve(10 + len);
+    frame.reserve(10 + (mask ? 4 : 0) + len);
 
     frame.push_back(0x80 | opcode); // FIN + opcode
 
@@ -132,7 +140,22 @@ Task<> WsConnection::sendFrame(uint8_t opcode, const void * data, size_t len, bo
     }
 
     const auto * bytes = static_cast<const uint8_t *>(data);
-    frame.insert(frame.end(), bytes, bytes + len);
+    if (mask)
+    {
+        uint8_t maskKey[4];
+        uint32_t r = static_cast<uint32_t>(std::rand());
+        maskKey[0] = r & 0xFF;
+        maskKey[1] = (r >> 8) & 0xFF;
+        maskKey[2] = (r >> 16) & 0xFF;
+        maskKey[3] = (r >> 24) & 0xFF;
+        frame.insert(frame.end(), maskKey, maskKey + 4);
+        for (size_t i = 0; i < len; ++i)
+            frame.push_back(bytes[i] ^ maskKey[i % 4]);
+    }
+    else
+    {
+        frame.insert(frame.end(), bytes, bytes + len);
+    }
 
     co_await stream_->write(frame.data(), frame.size());
 }

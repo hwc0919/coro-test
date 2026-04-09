@@ -85,7 +85,7 @@ Task<http::HttpServer::StreamHandler> WsServer::handleUpgrade(http::IncomingRequ
     }
 
     co_return [connPromisePtr](io::StreamPtr stream) -> Task<> {
-        WsConnection conn(std::move(stream));
+        WsConnection conn(std::move(stream), WsConnection::Role::Server);
         connPromisePtr->set_value(std::move(conn));
         co_return;
     };

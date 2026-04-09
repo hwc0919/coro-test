@@ -22,8 +22,14 @@ struct WsMessage
 class WsConnection
 {
 public:
-    explicit WsConnection(io::StreamPtr stream)
-        : stream_(std::move(stream)) {}
+    enum class Role
+    {
+        Server,
+        Client,
+    };
+
+    explicit WsConnection(io::StreamPtr stream, Role role)
+        : stream_(std::move(stream)), role_(role) {}
 
     /** Read one complete (possibly fragmented) message. Returns nullopt on close. */
     Task<std::optional<WsMessage>> receive();
@@ -33,9 +39,10 @@ public:
     Task<> forceClose();
 
 private:
-    Task<> sendFrame(uint8_t opcode, const void * data, size_t len, bool mask = false);
+    Task<> sendFrame(uint8_t opcode, const void * data, size_t len);
 
     io::StreamPtr stream_;
+    Role role_;
 };
 
 } // namespace nitrocoro::websocket
