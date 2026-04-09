@@ -221,6 +221,8 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
         // TODO: custom exception handler
         if (exPtr)
         {
+            response->clear();
+            response->setCloseConnection(true);
             response->setStatus(StatusCode::k500InternalServerError);
             response->setBody("Internal Server Error");
             co_return { Action::Shutdown, std::move(response), std::move(bodyReader) };
@@ -308,6 +310,8 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
     if (exPtr)
     {
         keepAlive = false;
+        response->clear();
+        response->setCloseConnection(true);
         response->setStatus(StatusCode::k500InternalServerError);
         response->setBody("Internal Server Error");
     }

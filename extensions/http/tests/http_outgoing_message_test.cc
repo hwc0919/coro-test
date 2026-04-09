@@ -144,6 +144,92 @@ NITRO_TEST(outgoing_request_chunked)
     NITRO_CHECK(!hasHeader(mock->data, "Content-Length"));
 }
 
+/** clear() resets headers and body; closeConnection_ is preserved. */
+NITRO_TEST(outgoing_response_clear)
+{
+    auto [mock, stream] = makeStream();
+    ServerResponse resp;
+    resp.setStatus(StatusCode::k200OK);
+    resp.setHeader("X-Custom", "value");
+    resp.setCloseConnection(true);
+    resp.clear();
+    resp.setStatus(StatusCode::k500InternalServerError);
+    resp.setBody("error");
+    co_await resp.flush(stream);
+
+    NITRO_CHECK(!hasHeader(mock->data, "X-Custom"));
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
+    NITRO_CHECK(mock->data.find("500") != std::string::npos);
+}
+
+/** HTTP/1.0 response default produces Connection: keep-alive. */
+NITRO_TEST(outgoing_response_http10_keep_alive)
+{
+    auto [mock, stream] = makeStream();
+    ServerResponse resp;
+    resp.setVersion(Version::kHttp10);
+    resp.setStatus(StatusCode::k200OK);
+    resp.setBody("ok");
+    co_await resp.flush(stream);
+
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "keep-alive"));
+}
+
+/** HTTP/1.0 response with closeConnection produces no Connection header. */
+NITRO_TEST(outgoing_response_http10_close)
+{
+    auto [mock, stream] = makeStream();
+    ServerResponse resp;
+    resp.setVersion(Version::kHttp10);
+    resp.setStatus(StatusCode::k200OK);
+    resp.setCloseConnection(true);
+    resp.setBody("ok");
+    co_await resp.flush(stream);
+
+    NITRO_CHECK(!hasHeader(mock->data, "Connection"));
+}
+
+/** HTTP/1.0 streaming body overrides user-set Connection header with close. */
+NITRO_TEST(outgoing_response_http10_streaming_override_connection)
+{
+    auto [mock, stream] = makeStream();
+    ServerResponse resp;
+    resp.setVersion(Version::kHttp10);
+    resp.setStatus(StatusCode::k200OK);
+    resp.setHeader(HttpHeader::NameCode::Connection, "keep-alive");
+    resp.setBody([](auto & w) -> Task<> { co_await w.write("data"); });
+    co_await resp.flush(stream);
+
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
+}
+
+/** HTTP/1.0 request with setKeepAlive(true) produces Connection: keep-alive. */
+NITRO_TEST(outgoing_request_http10_keep_alive)
+{
+    auto [mock, stream] = makeStream();
+    ClientRequest req;
+    req.setVersion(Version::kHttp10);
+    req.setMethod(methods::Get);
+    req.setPath("/");
+    req.setKeepAlive(true);
+    co_await req.flush(stream);
+
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "keep-alive"));
+}
+
+/** HTTP/1.1 request with setKeepAlive(false) produces Connection: close. */
+NITRO_TEST(outgoing_request_connection_close)
+{
+    auto [mock, stream] = makeStream();
+    ClientRequest req;
+    req.setMethod(methods::Get);
+    req.setPath("/");
+    req.setKeepAlive(false);
+    co_await req.flush(stream);
+
+    NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
+}
+
 int main(int argc, char ** argv)
 {
     return nitrocoro::test::run_all(argc, argv);

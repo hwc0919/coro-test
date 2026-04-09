@@ -71,6 +71,7 @@ protected:
 
     bool ignoreBody_{ false };
     bool sendDateHeader_{ true };
+    bool closeConnection_{ false }; // override related field in DataType
 };
 
 } // namespace detail
@@ -87,6 +88,8 @@ template <>
 class HttpOutgoingMessage<HttpRequest>
     : public detail::HttpOutgoingMessageBase<HttpRequest>
 {
+    friend class HttpClient;
+
 public:
     HttpOutgoingMessage() = default;
 
@@ -94,10 +97,8 @@ public:
     void setMethod(std::string_view method) { data_.method = HttpMethod::fromString(method); }
     void setPath(std::string path) { data_.path = std::move(path); }
     void setVersion(Version version) { data_.version = version; }
+    void setKeepAlive(bool keepAlive) { closeConnection_ = !keepAlive; }
     void setCookie(const std::string & name, std::string value) { data_.cookies[name] = std::move(value); }
-
-private:
-    friend class HttpClient;
 };
 
 // ============================================================================
@@ -123,8 +124,10 @@ public:
     void setStatus(int code, const std::string & reason = "");
     void setStatus(StatusCode code, const std::string & reason = "");
     void setVersion(Version version) { data_.version = version; }
-    void setCloseConnection(bool shouldClose) { data_.shouldClose = shouldClose; }
+    void setCloseConnection(bool shouldClose) { closeConnection_ = shouldClose; }
     void addCookie(Cookie cookie) { data_.cookies.push_back(std::move(cookie)); }
+
+    void clear();
 };
 
 } // namespace nitrocoro::http

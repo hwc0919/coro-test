@@ -200,6 +200,12 @@ void HttpOutgoingMessageBase<DataType>::buildHeaders(
             }
             buf.append("\r\n");
         }
+        bool needClose = closeConnection_ && data_.version != Version::kHttp10;
+        bool needKeepAlive = !closeConnection_ && data_.version == Version::kHttp10;
+        if ((needClose || needKeepAlive) && !data_.headers.contains(HttpHeader::Name::Connection_L))
+        {
+            buf.append(needClose ? "Connection: close\r\n" : "Connection: keep-alive\r\n");
+        }
     }
     else // HttpResponse
     {
@@ -222,13 +228,12 @@ void HttpOutgoingMessageBase<DataType>::buildHeaders(
             buf.append("Date: ").append(dateBuf).append("\r\n");
         }
 
-        if (overrideCloseConnection)
+        bool needClose = (overrideCloseConnection || closeConnection_) && data_.version != Version::kHttp10;
+        bool needKeepAlive = !closeConnection_ && data_.version == Version::kHttp10;
+        if ((needClose || needKeepAlive)
+            && (overrideCloseConnection || !data_.headers.contains(HttpHeader::Name::Connection_L)))
         {
-            buf.append("Connection: close\r\n");
-        }
-        else if (data_.shouldClose && !data_.headers.contains(HttpHeader::Name::Connection_L))
-        {
-            buf.append("Connection: close\r\n");
+            buf.append(needClose ? "Connection: close\r\n" : "Connection: keep-alive\r\n");
         }
     }
 }
@@ -394,6 +399,13 @@ void HttpOutgoingMessage<HttpResponse>::setStatus(int code, const std::string & 
 void HttpOutgoingMessage<HttpResponse>::setStatus(StatusCode code, const std::string & reason)
 {
     setStatus(static_cast<uint16_t>(code), reason);
+}
+
+void HttpOutgoingMessage<HttpResponse>::clear()
+{
+    data_ = {};
+    body_.clear();
+    bodyWriterFn_ = nullptr;
 }
 
 } // namespace nitrocoro::http
