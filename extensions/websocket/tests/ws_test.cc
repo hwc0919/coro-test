@@ -211,7 +211,7 @@ NITRO_TEST(ws_http_coexist)
     co_await server.stop();
 }
 
-/** Upgrade request to an unregistered path is ignored (falls through to 404). */
+/** Upgrade request to an unregistered path returns 404. */
 NITRO_TEST(ws_unknown_path)
 {
     http::HttpServer server(0);
@@ -358,6 +358,136 @@ NITRO_TEST(ws_context_reject)
 
     auto resp = co_await readHttpResponse(*conn);
     NITRO_CHECK(resp.find("403") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Upgrade request with non-websocket Upgrade header returns 400. */
+NITRO_TEST(ws_bad_upgrade_protocol)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
+        co_await conn.shutdown();
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: h2c\r\n"
+                      "Connection: Upgrade\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("400") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Upgrade request missing Sec-WebSocket-Key returns 400. */
+NITRO_TEST(ws_missing_key)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
+        co_await conn.shutdown();
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Version: 13\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("400") != std::string::npos);
+
+    co_await server.stop();
+}
+
+/** Middleware intercepts WS upgrade request — handler is never called. */
+NITRO_TEST(ws_middleware_intercept)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+    bool handlerCalled = false;
+
+    server.use([](http::IncomingRequestPtr req, http::ServerResponsePtr resp,
+                  std::function<Task<>()> next) -> Task<> {
+        resp->setStatus(http::StatusCode::k401Unauthorized);
+        resp->setBody("Unauthorized");
+        co_return;
+    });
+
+    ws.route("/ws", [&handlerCalled](WsContextPtr wsCtx) -> Task<> {
+        handlerCalled = true;
+        auto conn = co_await wsCtx->accept();
+        co_await conn.shutdown();
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                      "Sec-WebSocket-Version: 13\r\n"
+                      "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("401") != std::string::npos);
+    NITRO_CHECK(!handlerCalled);
+
+    co_await server.stop();
+}
+
+/** Middleware adds a response header visible in the 101 upgrade response. */
+NITRO_TEST(ws_middleware_add_header)
+{
+    http::HttpServer server(0);
+    WsServer ws;
+
+    server.use([](http::IncomingRequestPtr req, http::ServerResponsePtr resp,
+                  std::function<Task<>()> next) -> Task<> {
+        co_await next();
+        resp->setHeader("X-Middleware", "applied");
+    });
+
+    ws.route("/ws", [](WsContextPtr wsCtx) -> Task<> {
+        auto conn = co_await wsCtx->accept();
+        co_await conn.shutdown();
+    });
+    ws.attachTo(server);
+    co_await startServer(server);
+
+    auto conn = co_await net::TcpConnection::connect({ "127.0.0.1", server.listeningPort() });
+    std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+    std::string req = "GET /ws HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "Upgrade: websocket\r\n"
+                      "Connection: Upgrade\r\n"
+                      "Sec-WebSocket-Key: "
+                      + key + "\r\n"
+                              "Sec-WebSocket-Version: 13\r\n"
+                              "\r\n";
+    co_await conn->write(req.data(), req.size());
+
+    auto resp = co_await readHttpResponse(*conn);
+    NITRO_CHECK(resp.find("101") != std::string::npos);
+    NITRO_CHECK(resp.find("X-Middleware: applied") != std::string::npos);
 
     co_await server.stop();
 }

@@ -187,11 +187,51 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
 
     if (requestUpgrader_ && isUpgradeRequest(*request))
     {
-        auto handler = co_await requestUpgrader_(request, response);
+        StreamHandler handler;
+        std::exception_ptr exPtr;
+        auto & middlewares = middlewares_;
+        auto invokeChain = [&](auto & self, size_t index,
+                               IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
+            if (index < middlewares.size())
+            {
+                co_await middlewares[index](req, resp, [&]() -> Task<> {
+                    co_await self(self, index + 1, req, resp);
+                });
+            }
+            else
+            {
+                handler = co_await requestUpgrader_(request, response);
+            }
+        };
+
+        try
+        {
+            co_await invokeChain(invokeChain, 0, request, response);
+        }
+        catch (const std::exception & ex)
+        {
+            NITRO_ERROR("Unhandled exception in handler: %s", ex.what());
+            exPtr = std::current_exception();
+        }
+        catch (...)
+        {
+            NITRO_ERROR("Unhandled exception in handler");
+            exPtr = std::current_exception();
+        }
+        // TODO: custom exception handler
+        if (exPtr)
+        {
+            response->setStatus(StatusCode::k500InternalServerError);
+            response->setBody("Internal Server Error");
+            co_return { Action::Shutdown, std::move(response), std::move(bodyReader) };
+        }
         if (handler)
         {
-            co_return { Action::Upgrade, std::move(response), std::move(bodyReader), std::move(handler) };
+            co_await response->flush(stream);
+            co_await handler(stream);
+            co_return { Action::Disconnected };
         }
+        co_return { keepAlive ? Action::Continue : Action::Shutdown, std::move(response), std::move(bodyReader) };
     }
 
     auto routeRes = router_->route(method, request->path());
@@ -236,22 +276,22 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
     }
 
     std::exception_ptr exPtr;
+    auto & middlewares = middlewares_;
+    auto invokeChain = [&](auto & self, size_t index,
+                           IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
+        if (index < middlewares.size())
+        {
+            co_await middlewares[index](req, resp, [&]() -> Task<> {
+                co_await self(self, index + 1, req, resp);
+            });
+        }
+        else
+        {
+            co_await routeRes.handler->invoke(req, resp);
+        }
+    };
     try
     {
-        auto & middlewares = middlewares_;
-        auto invokeChain = [&](auto & self, size_t index,
-                               IncomingRequestPtr req, ServerResponsePtr resp) -> Task<> {
-            if (index < middlewares.size())
-            {
-                co_await middlewares[index](req, resp, [&]() -> Task<> {
-                    co_await self(self, index + 1, req, resp);
-                });
-            }
-            else
-            {
-                co_await routeRes.handler->invoke(req, resp);
-            }
-        };
         co_await invokeChain(invokeChain, 0, request, response);
     }
     catch (const std::exception & ex)
@@ -307,11 +347,6 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
         // flush resp
         co_await result.resp->flush(stream);
 
-        if (result.action == Action::Upgrade)
-        {
-            co_await result.streamHandler(stream);
-            break;
-        }
         if (result.bodyReader && !result.bodyReader->isComplete())
             co_await result.bodyReader->drain();
         if (result.action == Action::Shutdown)

@@ -37,16 +37,28 @@ Task<http::HttpServer::StreamHandler> WsServer::handleUpgrade(http::IncomingRequ
     // Only handle WebSocket upgrades
     auto & upgrade = req->getHeader(HttpHeader::NameCode::Upgrade);
     if (HttpHeader::toLower(upgrade) != "websocket")
+    {
+        resp->setStatus(http::StatusCode::k400BadRequest);
+        resp->setBody("Unsupported upgrade protocol");
         co_return nullptr;
+    }
 
     // Use WsRouter to find handler
     auto result = router_.route(req->path());
     if (!result)
+    {
+        resp->setStatus(http::StatusCode::k404NotFound);
+        resp->setBody("Not Found");
         co_return nullptr;
+    }
 
     auto & key = req->getHeader(HttpHeader::NameCode::SecWebSocketKey);
     if (key.empty())
+    {
+        resp->setStatus(http::StatusCode::k400BadRequest);
+        resp->setBody("Missing Sec-WebSocket-Key");
         co_return nullptr;
+    }
 
     std::string accept = computeAccept(key);
 

@@ -74,14 +74,12 @@ private:
             Disconnected,
             Close,
             Shutdown,
-            Upgrade,
             Continue
         };
 
         Action action{ Action::Continue };
         ServerResponsePtr resp;
         std::shared_ptr<BodyReader> bodyReader;
-        StreamHandler streamHandler;
     };
     Task<HandleResult> handleNextRequest(
         io::StreamPtr, std::shared_ptr<utils::StringBuffer>);
