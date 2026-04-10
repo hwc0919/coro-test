@@ -190,6 +190,7 @@ Task<> TcpServer::stop()
         co_return;
 
     NITRO_DEBUG("TcpServer::stop() requested");
+    ::shutdown(listenSocketPtr_->fd(), SHUT_RD);
     listenChannel_->disableAll(); // stop listening first
     listenChannel_->cancelAll();
 
