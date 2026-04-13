@@ -13,7 +13,10 @@ add_library(nitrocoro-http STATIC
     src/HttpIncomingStream.cc
     src/HttpOutgoingMessage.cc
     src/HttpServer.cc
+    src/Http1RequestSink.cc
+    src/Http1ResponseSink.cc
     src/HttpParser.cc
+    src/HttpUtils.cc
     src/StaticFiles.cc
     src/body_reader/ContentLengthReader.cc
     src/body_reader/ChunkedReader.cc

@@ -4,6 +4,7 @@
  */
 #include <nitrocoro/http/HttpServer.h>
 
+#include "Http1ResponseSink.h"
 #include "HttpParser.h"
 
 #include <nitrocoro/core/Future.h>
@@ -223,7 +224,6 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
         if (exPtr)
         {
             response->clear();
-            response->setVersion(request->version());
             response->setCloseConnection(true);
             response->setStatus(StatusCode::k500InternalServerError);
             response->setBody("Internal Server Error");
@@ -231,7 +231,7 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
         }
         if (handler)
         {
-            co_await response->flush(stream);
+            co_await response->flush(Http1ResponseSink(stream, config_.send_date_header));
             co_await handler(stream);
             co_return { Action::Close };
         }
@@ -313,7 +313,6 @@ Task<HttpServer::HandleResult> HttpServer::handleNextRequest(
     {
         keepAlive = false;
         response->clear();
-        response->setVersion(request->version());
         response->setCloseConnection(true);
         response->setStatus(StatusCode::k500InternalServerError);
         response->setBody("Internal Server Error");
@@ -352,7 +351,7 @@ Task<> HttpServer::handleConnection(net::TcpConnectionPtr conn)
             break;
 
         // flush resp
-        co_await result.resp->flush(stream);
+        co_await result.resp->flush(Http1ResponseSink(stream, config_.send_date_header));
 
         if (result.action == Action::Continue)
         {

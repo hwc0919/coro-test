@@ -1,0 +1,117 @@
+/**
+ * @file Http1ResponseSink.cc
+ * @brief HTTP/1.1 ResponseSink implementation
+ */
+#include "Http1ResponseSink.h"
+
+#include <nitrocoro/http/BodyWriter.h>
+#include <nitrocoro/http/HttpHeader.h>
+#include <nitrocoro/http/HttpUtils.h>
+#include <nitrocoro/http/stream/HttpOutgoingMessage.h>
+
+#include <ctime>
+
+namespace nitrocoro::http
+{
+
+Http1ResponseSink::Http1ResponseSink(io::StreamPtr stream, bool sendDateHeader)
+    : stream_(std::move(stream))
+    , sendDateHeader_(sendDateHeader)
+{
+}
+
+Task<> Http1ResponseSink::send(const HttpResponse & resp, std::string_view body, bool ignoreBody)
+{
+    std::string buf;
+    buf.reserve(256 + resp.headers.size() * 64 + body.size());
+    buildHeaderBuf(buf, resp, TransferMode::ContentLength, body.size());
+    buf.append("\r\n");
+    if (!ignoreBody)
+        buf.append(body);
+    co_await stream_->write(buf.data(), buf.size());
+}
+
+Task<> Http1ResponseSink::sendStream(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn)
+{
+    TransferMode mode;
+    if (resp.version == Version::kHttp10)
+        mode = TransferMode::UntilClose;
+    else
+        mode = TransferMode::Chunked;
+
+    std::string buf;
+    buf.reserve(256 + resp.headers.size() * 64);
+    buildHeaderBuf(buf, resp, mode, 0);
+    buf.append("\r\n");
+    co_await stream_->write(buf.data(), buf.size());
+
+    auto bodyWriter = BodyWriter::create(mode, stream_);
+    BodyStream bodyStream(bodyWriter.get());
+    co_await bodyWriterFn(bodyStream);
+    co_await bodyWriter->end();
+}
+
+void Http1ResponseSink::buildHeaderBuf(std::string & buf, const HttpResponse & resp,
+                                       TransferMode mode, size_t bodyLength) const
+{
+    buf.append(versionToString(resp.version))
+        .append(" ")
+        .append(std::to_string(resp.statusCode))
+        .append(" ")
+        .append(resp.statusReason.empty()
+                    ? statusCodeToString(resp.statusCode)
+                    : resp.statusReason)
+        .append("\r\n");
+
+    for (const auto & [name, header] : resp.headers)
+    {
+        if (header.nameCode() == HttpHeader::NameCode::ContentLength)
+        {
+            if (mode == TransferMode::ContentLength)
+                buf.append(HttpHeader::Name::ContentLength_C)
+                    .append(": ")
+                    .append(std::to_string(bodyLength))
+                    .append("\r\n");
+            continue;
+        }
+        // Drop HTTP/1.1 connection-management headers that are auto-managed
+        if (header.nameCode() == HttpHeader::NameCode::TransferEncoding)
+            continue;
+
+        if (header.nameCode() != HttpHeader::NameCode::Unknown)
+            buf.append(HttpHeader::codeToCanonicalName(header.nameCode()));
+        else
+            buf.append(HttpHeader::toCanonical(header.name()));
+        buf.append(": ").append(header.value()).append("\r\n");
+    }
+
+    if (mode == TransferMode::ContentLength && !resp.headers.contains(HttpHeader::Name::ContentLength_L))
+        buf.append(HttpHeader::Name::ContentLength_C).append(": ").append(std::to_string(bodyLength)).append("\r\n");
+
+    if (mode == TransferMode::Chunked && !resp.headers.contains(HttpHeader::Name::TransferEncoding_L))
+        buf.append(HttpHeader::Name::TransferEncoding_C).append(": chunked\r\n");
+
+    for (const auto & cookie : resp.cookies)
+        buf.append("Set-Cookie: ").append(cookie.toString()).append("\r\n");
+
+    if (sendDateHeader_ && resp.headers.find(HttpHeader::Name::Date_L) == resp.headers.end())
+    {
+        char dateBuf[32];
+        std::time_t now = std::time(nullptr);
+        std::tm tm{};
+#ifdef _WIN32
+        gmtime_s(&tm, &now);
+#else
+        gmtime_r(&now, &tm);
+#endif
+        std::strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S GMT", &tm);
+        buf.append("Date: ").append(dateBuf).append("\r\n");
+    }
+
+    bool needClose = (resp.shouldClose || mode == TransferMode::UntilClose) && resp.version != Version::kHttp10;
+    bool needKeepAlive = !resp.shouldClose && mode != TransferMode::UntilClose && resp.version == Version::kHttp10;
+    if ((needClose || needKeepAlive) && !resp.headers.contains(HttpHeader::Name::Connection_L))
+        buf.append(needClose ? "Connection: close\r\n" : "Connection: keep-alive\r\n");
+}
+
+} // namespace nitrocoro::http

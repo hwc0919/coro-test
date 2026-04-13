@@ -1,0 +1,29 @@
+/**
+ * @file Http1ResponseSink.h
+ * @brief HTTP/1.1 ResponseSink implementation
+ */
+#pragma once
+#include <nitrocoro/http/ResponseSink.h>
+
+#include <nitrocoro/io/Stream.h>
+
+namespace nitrocoro::http
+{
+
+class Http1ResponseSink : public ResponseSink
+{
+public:
+    explicit Http1ResponseSink(io::StreamPtr stream, bool sendDateHeader = true);
+
+    Task<> send(const HttpResponse & resp, std::string_view body, bool ignoreBody = false) override;
+    Task<> sendStream(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn) override;
+
+private:
+    void buildHeaderBuf(std::string & buf, const HttpResponse & resp,
+                        TransferMode mode, size_t bodyLength) const;
+
+    io::StreamPtr stream_;
+    bool sendDateHeader_;
+};
+
+} // namespace nitrocoro::http

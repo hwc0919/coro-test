@@ -8,12 +8,18 @@
 #include <nitrocoro/http/HttpHeader.h>
 #include <nitrocoro/http/HttpMessage.h>
 #include <nitrocoro/http/HttpTypes.h>
+#include <nitrocoro/http/RequestSink.h>
+#include <nitrocoro/http/ResponseSink.h>
 
 #include <nitrocoro/core/Task.h>
-#include <nitrocoro/io/Stream.h>
 
 #include <string>
 #include <string_view>
+
+namespace nitrocoro::http2
+{
+class Http2Session;
+}
 
 namespace nitrocoro::http
 {
@@ -25,23 +31,6 @@ template <typename DataType>
 class HttpOutgoingMessageBase
 {
 public:
-    class BodyStream
-    {
-    public:
-        explicit BodyStream(BodyWriter * writer)
-            : writer_(writer) {}
-
-        BodyStream(const BodyStream &) = delete;
-        BodyStream(BodyStream &&) = delete;
-
-        Task<> write(std::string_view data) { return writer_->write(data); }
-
-    private:
-        BodyWriter * writer_;
-    };
-
-    using BodyWriterFn = std::function<Task<>(BodyStream &)>;
-
     HttpOutgoingMessageBase() = default;
 
     explicit HttpOutgoingMessageBase(bool ignoreBody,
@@ -59,12 +48,7 @@ public:
     void setBody(const char * data, size_t len);
     void setBody(BodyWriterFn bodyWriterFn);
 
-    Task<> flush(io::StreamPtr stream) const;
-
 protected:
-    static const char * getDefaultReason(uint16_t code);
-    void buildHeaders(std::string & buf, TransferMode mode, size_t bodyLength, bool overrideCloseConnection) const;
-
     DataType data_;
     std::string body_;
     BodyWriterFn bodyWriterFn_;
@@ -98,6 +82,9 @@ public:
     void setVersion(Version version) { data_.version = version; }
     void setKeepAlive(bool keepAlive) { data_.keepAlive = keepAlive; }
     void setCookie(const std::string & name, std::string value) { data_.cookies[name] = std::move(value); }
+
+    Task<> flush(RequestSink & sink) const;
+    Task<> flush(RequestSink && sink) const;
 };
 
 // ============================================================================
@@ -108,8 +95,6 @@ template <>
 class HttpOutgoingMessage<HttpResponse>
     : public detail::HttpOutgoingMessageBase<HttpResponse>
 {
-    friend class HttpServer;
-
 public:
     HttpOutgoingMessage() = default;
 
@@ -127,6 +112,9 @@ public:
     void addCookie(Cookie cookie) { data_.cookies.push_back(std::move(cookie)); }
 
     void clear();
+
+    Task<> flush(ResponseSink & sink) const;
+    Task<> flush(ResponseSink && sink) const;
 };
 
 } // namespace nitrocoro::http

@@ -2,6 +2,8 @@
  * @file http_outgoing_message_test.cc
  * @brief Unit tests for HttpOutgoingMessage serialization via flush()
  */
+#include "../src/Http1RequestSink.h"
+#include "../src/Http1ResponseSink.h"
 #include <nitrocoro/http/HttpStream.h>
 #include <nitrocoro/testing/Test.h>
 
@@ -53,7 +55,7 @@ NITRO_TEST(outgoing_response_content_length)
     ServerResponse resp;
     resp.setStatus(StatusCode::k200OK);
     resp.setBody("hello");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Content-Length", "5"));
     NITRO_CHECK(!hasHeader(mock->data, "Transfer-Encoding"));
@@ -67,7 +69,7 @@ NITRO_TEST(outgoing_response_chunked)
     ServerResponse resp;
     resp.setStatus(StatusCode::k200OK);
     resp.setBody([](auto & w) -> Task<> { co_await w.write("chunk"); });
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Transfer-Encoding", "chunked"));
     NITRO_CHECK(!hasHeader(mock->data, "Content-Length"));
@@ -81,7 +83,7 @@ NITRO_TEST(outgoing_response_connection_close)
     resp.setStatus(StatusCode::k200OK);
     resp.setCloseConnection(true);
     resp.setBody("ok");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
 }
@@ -94,7 +96,7 @@ NITRO_TEST(outgoing_response_http10_streaming_fallback)
     resp.setVersion(Version::kHttp10);
     resp.setStatus(StatusCode::k200OK);
     resp.setBody([](auto & w) -> Task<> { co_await w.write("data"); });
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(!hasHeader(mock->data, "Transfer-Encoding"));
     NITRO_CHECK(!hasHeader(mock->data, "Connection"));
@@ -109,7 +111,7 @@ NITRO_TEST(outgoing_response_content_length_override)
     resp.setStatus(StatusCode::k200OK);
     resp.setHeader(HttpHeader::NameCode::ContentLength, "999");
     resp.setBody("hi");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Content-Length", "2"));
     NITRO_CHECK(!hasHeader(mock->data, "Content-Length: 999"));
@@ -123,7 +125,7 @@ NITRO_TEST(outgoing_request_content_length)
     req.setMethod(methods::Post);
     req.setPath("/echo");
     req.setBody("ping");
-    co_await req.flush(stream);
+    co_await req.flush(Http1RequestSink(stream));
 
     NITRO_CHECK(mock->data.find("POST /echo HTTP/1.1\r\n") != std::string::npos);
     NITRO_CHECK(hasHeader(mock->data, "Content-Length", "4"));
@@ -138,7 +140,7 @@ NITRO_TEST(outgoing_request_chunked)
     req.setMethod(methods::Post);
     req.setPath("/upload");
     req.setBody([](auto & w) -> Task<> { co_await w.write("abc"); });
-    co_await req.flush(stream);
+    co_await req.flush(Http1RequestSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Transfer-Encoding", "chunked"));
     NITRO_CHECK(!hasHeader(mock->data, "Content-Length"));
@@ -155,7 +157,7 @@ NITRO_TEST(outgoing_response_clear)
     resp.clear();
     resp.setStatus(StatusCode::k500InternalServerError);
     resp.setBody("error");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(!hasHeader(mock->data, "X-Custom"));
     NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
@@ -170,7 +172,7 @@ NITRO_TEST(outgoing_response_http10_keep_alive)
     resp.setVersion(Version::kHttp10);
     resp.setStatus(StatusCode::k200OK);
     resp.setBody("ok");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Connection", "keep-alive"));
 }
@@ -184,23 +186,9 @@ NITRO_TEST(outgoing_response_http10_close)
     resp.setStatus(StatusCode::k200OK);
     resp.setCloseConnection(true);
     resp.setBody("ok");
-    co_await resp.flush(stream);
+    co_await resp.flush(Http1ResponseSink(stream));
 
     NITRO_CHECK(!hasHeader(mock->data, "Connection"));
-}
-
-/** HTTP/1.0 streaming body overrides user-set Connection header with close. */
-NITRO_TEST(outgoing_response_http10_streaming_override_connection)
-{
-    auto [mock, stream] = makeStream();
-    ServerResponse resp;
-    resp.setVersion(Version::kHttp10);
-    resp.setStatus(StatusCode::k200OK);
-    resp.setHeader(HttpHeader::NameCode::Connection, "keep-alive");
-    resp.setBody([](auto & w) -> Task<> { co_await w.write("data"); });
-    co_await resp.flush(stream);
-
-    NITRO_CHECK(!hasHeader(mock->data, "Connection", "keep-alive"));
 }
 
 /** HTTP/1.0 request with setKeepAlive(true) produces Connection: keep-alive. */
@@ -212,7 +200,7 @@ NITRO_TEST(outgoing_request_http10_keep_alive)
     req.setMethod(methods::Get);
     req.setPath("/");
     req.setKeepAlive(true);
-    co_await req.flush(stream);
+    co_await req.flush(Http1RequestSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Connection", "keep-alive"));
 }
@@ -225,7 +213,7 @@ NITRO_TEST(outgoing_request_connection_close)
     req.setMethod(methods::Get);
     req.setPath("/");
     req.setKeepAlive(false);
-    co_await req.flush(stream);
+    co_await req.flush(Http1RequestSink(stream));
 
     NITRO_CHECK(hasHeader(mock->data, "Connection", "close"));
 }

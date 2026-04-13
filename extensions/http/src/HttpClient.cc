@@ -9,6 +9,7 @@
 #include <nitrocoro/net/Dns.h>
 #include <nitrocoro/net/Url.h>
 
+#include "Http1RequestSink.h"
 #include "HttpParser.h"
 #include <stdexcept>
 
@@ -72,7 +73,7 @@ Task<IncomingResponse> HttpClient::doRequest(ClientRequest req, io::StreamPtr st
         [[maybe_unused]] auto lock = co_await cookieMutex_.scoped_lock();
         injectCookies(req, req.data_.path);
     }
-    co_await req.flush(stream);
+    co_await req.flush(Http1RequestSink(stream));
 
     auto buffer = std::make_shared<utils::StringBuffer>();
     auto result = co_await parseResponse(stream, buffer);

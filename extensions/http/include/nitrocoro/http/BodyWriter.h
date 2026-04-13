@@ -8,6 +8,7 @@
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/Stream.h>
 
+#include <functional>
 #include <memory>
 #include <string_view>
 
@@ -27,5 +28,22 @@ public:
         io::StreamPtr stream,
         size_t contentLength = 0);
 };
+
+class BodyStream
+{
+public:
+    explicit BodyStream(BodyWriter * writer)
+        : writer_(writer) {}
+
+    BodyStream(const BodyStream &) = delete;
+    BodyStream(BodyStream &&) = delete;
+
+    Task<> write(std::string_view data) { return writer_->write(data); }
+
+private:
+    BodyWriter * writer_;
+};
+
+using BodyWriterFn = std::function<Task<>(BodyStream &)>;
 
 } // namespace nitrocoro::http
