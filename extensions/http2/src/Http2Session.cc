@@ -375,10 +375,10 @@ http::HttpRequest Http2Session::buildRequest(const hpack::DecodedHeaders & dh,
     return req;
 }
 
-Task<> Http2Session::sendHeaders(uint32_t streamId, uint16_t statusCode,
-                                 const http::HttpHeaderMap & headers, bool endStream)
+Task<> Http2Session::sendHeaders(uint32_t streamId, const http::HttpResponse & resp,
+                                 bool endStream)
 {
-    auto block = encoder_.encodeResponse(statusCode, headers);
+    auto block = encoder_.encodeResponse(resp);
     uint8_t flags = FrameFlags::EndHeaders | (endStream ? FrameFlags::EndStream : 0);
     auto lock = co_await writeMutex_.scoped_lock();
     co_await reader_.writeFrame(FrameType::Headers, flags, streamId,

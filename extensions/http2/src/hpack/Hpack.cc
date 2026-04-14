@@ -222,22 +222,19 @@ void HpackEncoder::encodeStr(std::vector<uint8_t> & out, std::string_view s)
     out.insert(out.end(), s.begin(), s.end());
 }
 
-std::vector<uint8_t> HpackEncoder::encodeResponse(uint16_t statusCode,
-                                                  const http::HttpHeaderMap & headers)
+std::vector<uint8_t> HpackEncoder::encodeResponse(const http::HttpResponse & resp)
 {
     std::vector<uint8_t> out;
     out.reserve(128);
 
-    // :status - try indexed first
-    std::string statusStr = std::to_string(statusCode);
+    std::string statusStr = std::to_string(resp.statusCode);
     int idx = table_.find(":status", statusStr);
     if (idx > 0)
     {
-        encodeInt(out, idx, 7, 0x80); // indexed
+        encodeInt(out, idx, 7, 0x80);
     }
     else
     {
-        // Literal with incremental indexing
         int nameIdx = (idx < 0) ? -idx : 0;
         encodeInt(out, nameIdx, 6, 0x40);
         if (nameIdx == 0)
@@ -246,9 +243,9 @@ std::vector<uint8_t> HpackEncoder::encodeResponse(uint16_t statusCode,
         table_.insert(":status", statusStr);
     }
 
-    for (const auto & [key, hdr] : headers)
+    for (const auto & [key, hdr] : resp.headers)
     {
-        std::string lname = hdr.name(); // already lowercase in our impl
+        std::string_view lname = hdr.name(); // already lowercase in our impl
         std::string_view val = hdr.value();
 
         int hidx = table_.find(lname, val);
@@ -263,9 +260,18 @@ std::vector<uint8_t> HpackEncoder::encodeResponse(uint16_t statusCode,
             if (nidx == 0)
                 encodeStr(out, lname);
             encodeStr(out, val);
-            table_.insert(lname, std::string(val));
+            table_.insert(std::string(lname), std::string(val));
         }
     }
+
+    for (const auto & cookie : resp.cookies)
+    {
+        std::string val = cookie.toString();
+        encodeInt(out, 0, 6, 0x40);
+        encodeStr(out, "set-cookie");
+        encodeStr(out, val);
+    }
+
     return out;
 }
 

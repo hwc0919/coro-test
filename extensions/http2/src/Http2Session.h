@@ -27,9 +27,7 @@ public:
 
     Task<> run();
 
-    // Called by Http2WriteProxy / dispatchStream
-    Task<> sendHeaders(uint32_t streamId, uint16_t statusCode,
-                       const http::HttpHeaderMap & headers, bool endStream);
+    Task<> sendHeaders(uint32_t streamId, const http::HttpResponse & resp, bool endStream);
     Task<> sendData(uint32_t streamId, std::string_view data, bool endStream);
     Task<> sendRstStream(uint32_t streamId, uint32_t errorCode);
 

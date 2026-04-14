@@ -42,7 +42,7 @@ Task<> Http2ResponseSink::send(const http::HttpResponse & resp, std::string_view
     if (!s)
         co_return;
     bool endStream = ignoreBody || body.empty();
-    co_await s->sendHeaders(streamId_, resp.statusCode, resp.headers, endStream);
+    co_await s->sendHeaders(streamId_, resp, endStream);
     if (!endStream)
         co_await s->sendData(streamId_, body, true);
 }
@@ -53,7 +53,7 @@ Task<> Http2ResponseSink::sendStream(const http::HttpResponse & resp,
     auto s = session_.lock();
     if (!s)
         co_return;
-    co_await s->sendHeaders(streamId_, resp.statusCode, resp.headers, false);
+    co_await s->sendHeaders(streamId_, resp, false);
     Http2BodyWriter writer(s, streamId_);
     co_await bodyWriterFn(writer);
     co_await s->sendData(streamId_, {}, true);
