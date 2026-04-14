@@ -110,7 +110,6 @@ void HttpOutgoingMessage<HttpResponse>::clear()
 
 Task<> HttpOutgoingMessage<HttpResponse>::flush(ResponseSink & sink) const
 {
-
     if (bodyWriterFn_)
     {
         co_await sink.sendStream(data_, bodyWriterFn_);

@@ -39,7 +39,7 @@ private:
     Task<> handlePing(const Frame & frame);
     Task<> finaliseHeaders();
 
-    void dispatchStream(std::shared_ptr<Http2Stream> stream);
+    Task<> dispatchStream(std::shared_ptr<Http2Stream> h2stream);
 
     Task<> sendGoAway(uint32_t lastStreamId, uint32_t errorCode);
     Task<> sendSettingsAck();

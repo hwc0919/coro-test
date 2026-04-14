@@ -188,7 +188,21 @@ Task<> Http2Session::finaliseHeaders()
     if (headersOnly_)
         stream->bodySender.reset(); // EOF immediately for headers-only requests
 
-    dispatchStream(stream);
+    scheduler_->spawn([weakThis = weak_from_this(), stream = std::move(stream)]() -> Task<> {
+        auto thisPtr = weakThis.lock();
+        if (!thisPtr)
+            co_return;
+
+        try
+        {
+            co_await thisPtr->dispatchStream(stream);
+        }
+        catch (const std::exception & ex)
+        {
+            NITRO_ERROR("Http2Session::dispatchStream error: %s", ex.what());
+        }
+        thisPtr->streams_.erase(stream->streamId);
+    });
 }
 
 Task<> Http2Session::handleData(const Frame & frame)
@@ -250,50 +264,44 @@ Task<> Http2Session::handlePing(const Frame & frame)
                                 frame.payload.data(), 8);
 }
 
-void Http2Session::dispatchStream(std::shared_ptr<Http2Stream> h2stream)
+Task<> Http2Session::dispatchStream(std::shared_ptr<Http2Stream> h2stream)
 {
-    auto self = shared_from_this();
-    scheduler_->spawn([self, h2stream]() -> Task<> {
-        uint32_t sid = h2stream->streamId;
+    uint32_t sid = h2stream->streamId;
 
-        http::HttpRequest req = self->buildRequest(h2stream->decodedHeaders);
-        auto result = self->router_->route(req.method, req.path);
+    http::HttpRequest req = buildRequest(h2stream->decodedHeaders);
+    auto result = router_->route(req.method, req.path);
 
-        auto bodyReader = std::make_shared<Http2BodyReader>(std::move(h2stream->bodyReceiver));
-        auto request = std::make_shared<http::IncomingRequest>(std::move(req), bodyReader);
-        request->pathParams() = std::move(result.params);
+    auto bodyReader = std::make_shared<Http2BodyReader>(std::move(h2stream->bodyReceiver));
+    auto request = std::make_shared<http::IncomingRequest>(std::move(req), bodyReader);
+    request->pathParams() = std::move(result.params);
 
-        Http2ResponseSink sink(self, sid);
-        auto response = std::make_shared<http::ServerResponse>();
+    Http2ResponseSink sink(weak_from_this(), sid);
+    auto response = std::make_shared<http::ServerResponse>();
 
-        if (!result.handler)
-        {
-            if (result.reason == http::HttpRouter::RouteResult::Reason::MethodNotAllowed)
-                response->setStatus(http::StatusCode::k405MethodNotAllowed);
-            else
-                response->setStatus(http::StatusCode::k404NotFound);
-            co_await response->flush(sink);
-            self->streams_.erase(sid);
-            co_return;
-        }
+    if (!result.handler)
+    {
+        if (result.reason == http::HttpRouter::RouteResult::Reason::MethodNotAllowed)
+            response->setStatus(http::StatusCode::k405MethodNotAllowed);
+        else
+            response->setStatus(http::StatusCode::k404NotFound);
+        co_await response->flush(sink);
+        co_return;
+    }
 
-        bool handlerError = false;
-        try
-        {
-            co_await result.handler->invoke(request, response);
-            co_await response->flush(sink);
-        }
-        catch (const std::exception & e)
-        {
-            NITRO_ERROR("HTTP/2 handler error: %s", e.what());
-            handlerError = true;
-        }
+    bool handlerError = false;
+    try
+    {
+        co_await result.handler->invoke(request, response);
+        co_await response->flush(sink);
+    }
+    catch (const std::exception & e)
+    {
+        NITRO_ERROR("HTTP/2 handler error: %s", e.what());
+        handlerError = true;
+    }
 
-        if (handlerError)
-            co_await self->sendRstStream(sid, ErrorCode::InternalError);
-
-        self->streams_.erase(sid);
-    });
+    if (handlerError)
+        co_await sendRstStream(sid, ErrorCode::InternalError);
 }
 
 http::HttpRequest Http2Session::buildRequest(const hpack::DecodedHeaders & dh)
@@ -302,13 +310,13 @@ http::HttpRequest Http2Session::buildRequest(const hpack::DecodedHeaders & dh)
     req.version = http::Version::kHttp11;
     req.method = http::HttpMethod::fromString(dh.method);
 
-    size_t qpos = dh.path.find('?');
-    std::string rawPath = dh.path.substr(0, qpos);
+    size_t qPos = dh.path.find('?');
+    std::string rawPath = dh.path.substr(0, qPos);
     req.rawPath = rawPath;
     req.path = utils::urlDecode(rawPath);
-    if (qpos != std::string::npos)
+    if (qPos != std::string::npos)
     {
-        req.query = dh.path.substr(qpos + 1);
+        req.query = dh.path.substr(qPos + 1);
         // Parse query params
         std::string_view qs(req.query);
         size_t start = 0;
@@ -333,10 +341,6 @@ http::HttpRequest Http2Session::buildRequest(const hpack::DecodedHeaders & dh)
         req.headers.insert_or_assign(h.name(), std::move(h));
     }
     req.headers.insert(dh.headers.begin(), dh.headers.end());
-
-    req.transferMode = http::TransferMode::ContentLength;
-    req.contentLength = 0;
-    req.keepAlive = false;
     return req;
 }
 
