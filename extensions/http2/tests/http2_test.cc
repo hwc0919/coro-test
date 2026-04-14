@@ -10,6 +10,7 @@
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/testing/Test.h>
 
+#include <atomic>
 #include <cstring>
 #include <optional>
 #include <unordered_map>
@@ -424,6 +425,55 @@ NITRO_TEST(h2_multiple_streams)
 
     NITRO_CHECK_EQ(r1.body, "aaa");
     NITRO_CHECK_EQ(r3.body, "bbb");
+
+    co_await server.stop();
+}
+
+// Two streams each send 5 DATA frames, strictly alternating via an atomic
+// counter. Stream 1 sends on even turns, stream 3 on odd turns. The pump
+// must correctly demux all 10 frames and each body must be fully reassembled.
+NITRO_TEST(h2_interleaved_frames)
+{
+    auto counter = std::make_shared<std::atomic_int>(0);
+
+    Http2Server server(0);
+    server.route("/s1", { "GET" }, [counter](auto req, auto resp) -> Task<> {
+        resp->setBody([counter](http::BodyWriter & w) -> Task<> {
+            for (int i = 0; i < 5; ++i)
+            {
+                while (counter->load() != i * 2)
+                    co_await sleep(1ms);
+                co_await w.write("A");
+                counter->fetch_add(1);
+            }
+        });
+        co_return;
+    });
+    server.route("/s3", { "GET" }, [counter](auto req, auto resp) -> Task<> {
+        resp->setBody([counter](http::BodyWriter & w) -> Task<> {
+            for (int i = 0; i < 5; ++i)
+            {
+                while (counter->load() != i * 2 + 1)
+                    co_await sleep(1ms);
+                co_await w.write("B");
+                counter->fetch_add(1);
+            }
+        });
+        co_return;
+    });
+    co_await startServer(server);
+
+    std::string host = "127.0.0.1:" + std::to_string(server.listeningPort());
+    auto client = co_await h2client(server);
+
+    co_await client->send(makeGetFrame(1, "/s1", host));
+    co_await client->send(makeGetFrame(3, "/s3", host));
+
+    auto r1 = co_await client->recv(1);
+    auto r3 = co_await client->recv(3);
+
+    NITRO_CHECK_EQ(r1.body, "AAAAA");
+    NITRO_CHECK_EQ(r3.body, "BBBBB");
 
     co_await server.stop();
 }
