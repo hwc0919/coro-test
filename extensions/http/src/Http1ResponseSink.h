@@ -15,8 +15,8 @@ class Http1ResponseSink : public ResponseSink
 public:
     explicit Http1ResponseSink(io::StreamPtr stream, bool sendDateHeader = true);
 
-    Task<> send(const HttpResponse & resp, std::string_view body, bool ignoreBody = false) override;
-    Task<> sendStream(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn) override;
+    Task<> write(const HttpResponse & resp, std::string_view body, bool ignoreBody) override;
+    Task<> write(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn) override;
 
 private:
     void buildHeaderBuf(std::string & buf, const HttpResponse & resp,

@@ -20,7 +20,7 @@ Http1ResponseSink::Http1ResponseSink(io::StreamPtr stream, bool sendDateHeader)
 {
 }
 
-Task<> Http1ResponseSink::send(const HttpResponse & resp, std::string_view body, bool ignoreBody)
+Task<> Http1ResponseSink::write(const HttpResponse & resp, std::string_view body, bool ignoreBody)
 {
     std::string buf;
     buf.reserve(256 + resp.headers.size() * 64 + body.size());
@@ -31,7 +31,7 @@ Task<> Http1ResponseSink::send(const HttpResponse & resp, std::string_view body,
     co_await stream_->write(buf.data(), buf.size());
 }
 
-Task<> Http1ResponseSink::sendStream(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn)
+Task<> Http1ResponseSink::write(const HttpResponse & resp, const BodyWriterFn & bodyWriterFn)
 {
     TransferMode mode;
     if (resp.version == Version::kHttp10)

@@ -19,9 +19,8 @@ class Http2ResponseSink : public http::ResponseSink
 public:
     Http2ResponseSink(std::weak_ptr<Http2Session> session, uint32_t streamId);
 
-    Task<> send(const http::HttpResponse & resp, std::string_view body, bool ignoreBody) override;
-    Task<> sendStream(const http::HttpResponse & resp,
-                      const http::BodyWriterFn & bodyWriterFn) override;
+    Task<> write(const http::HttpResponse & resp, std::string_view body, bool ignoreBody) override;
+    Task<> write(const http::HttpResponse & resp, const http::BodyWriterFn & bodyWriterFn) override;
 
 private:
     std::weak_ptr<Http2Session> session_;

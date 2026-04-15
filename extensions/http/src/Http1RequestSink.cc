@@ -16,7 +16,7 @@ Http1RequestSink::Http1RequestSink(io::StreamPtr stream)
 {
 }
 
-Task<> Http1RequestSink::send(const HttpRequest & req, std::string_view body)
+Task<> Http1RequestSink::write(const HttpRequest & req, std::string_view body)
 {
     std::string buf;
     buf.reserve(256 + req.headers.size() * 64 + body.size());
@@ -26,7 +26,7 @@ Task<> Http1RequestSink::send(const HttpRequest & req, std::string_view body)
     co_await stream_->write(buf.data(), buf.size());
 }
 
-Task<> Http1RequestSink::sendStream(const HttpRequest & req, const BodyWriterFn & bodyWriterFn)
+Task<> Http1RequestSink::write(const HttpRequest & req, const BodyWriterFn & bodyWriterFn)
 {
     TransferMode mode = (req.version == Version::kHttp10) ? TransferMode::UntilClose : TransferMode::Chunked;
 

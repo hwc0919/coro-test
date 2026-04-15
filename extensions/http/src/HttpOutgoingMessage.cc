@@ -72,9 +72,9 @@ namespace nitrocoro::http
 Task<> HttpOutgoingMessage<HttpRequest>::flush(RequestSink & sink) const
 {
     if (bodyWriterFn_)
-        co_await sink.sendStream(data_, bodyWriterFn_);
+        co_await sink.write(data_, bodyWriterFn_);
     else
-        co_await sink.send(data_, std::string_view(body_));
+        co_await sink.write(data_, std::string_view(body_));
 }
 
 Task<> HttpOutgoingMessage<HttpRequest>::flush(RequestSink && sink) const
@@ -112,11 +112,11 @@ Task<> HttpOutgoingMessage<HttpResponse>::flush(ResponseSink & sink) const
 {
     if (bodyWriterFn_)
     {
-        co_await sink.sendStream(data_, bodyWriterFn_);
+        co_await sink.write(data_, bodyWriterFn_);
     }
     else
     {
-        co_await sink.send(data_, std::string_view(body_), ignoreBody_);
+        co_await sink.write(data_, std::string_view(body_), ignoreBody_);
     }
 }
 

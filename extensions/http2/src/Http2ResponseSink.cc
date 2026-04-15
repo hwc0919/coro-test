@@ -35,7 +35,7 @@ Http2ResponseSink::Http2ResponseSink(std::weak_ptr<Http2Session> session, uint32
 {
 }
 
-Task<> Http2ResponseSink::send(const http::HttpResponse & resp, std::string_view body, bool ignoreBody)
+Task<> Http2ResponseSink::write(const http::HttpResponse & resp, std::string_view body, bool ignoreBody)
 {
     auto s = session_.lock();
     if (!s)
@@ -46,8 +46,7 @@ Task<> Http2ResponseSink::send(const http::HttpResponse & resp, std::string_view
         co_await s->sendData(streamId_, body, true);
 }
 
-Task<> Http2ResponseSink::sendStream(const http::HttpResponse & resp,
-                                     const http::BodyWriterFn & bodyWriterFn)
+Task<> Http2ResponseSink::write(const http::HttpResponse & resp, const http::BodyWriterFn & bodyWriterFn)
 {
     auto s = session_.lock();
     if (!s)

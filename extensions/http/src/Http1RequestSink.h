@@ -16,8 +16,8 @@ class Http1RequestSink : public RequestSink
 public:
     explicit Http1RequestSink(io::StreamPtr stream);
 
-    Task<> send(const HttpRequest & req, std::string_view body) override;
-    Task<> sendStream(const HttpRequest & req, const BodyWriterFn & bodyWriterFn) override;
+    Task<> write(const HttpRequest & req, std::string_view body) override;
+    Task<> write(const HttpRequest & req, const BodyWriterFn & bodyWriterFn) override;
 
 private:
     void buildHeaderBuf(std::string & buf, const HttpRequest & req,
