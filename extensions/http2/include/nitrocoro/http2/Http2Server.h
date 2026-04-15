@@ -5,14 +5,16 @@
 #pragma once
 
 #include <nitrocoro/http/HttpServer.h>
-#include <nitrocoro/tls/TlsContext.h>
+#include <nitrocoro/tls/TlsPolicy.h>
 
 namespace nitrocoro::http2
 {
 
-/** Attach HTTP/2 support to an existing HttpServer.
- *  ctx != nullptr: TLS+ALPN, "h2" → Http2Session, otherwise fall back to HTTP/1.1.
- *  ctx == nullptr: h2c plaintext, all connections handled as HTTP/2. */
-void enableHttp2(http::HttpServer & server, const tls::TlsContextPtr & ctx = nullptr);
+/** Attach HTTP/2 over TLS to an existing HttpServer.
+ *  ALPN is automatically configured as {"h2", "http/1.1"} for fallback support. */
+void enableHttp2(http::HttpServer & server, tls::TlsPolicy policy);
+
+/** Attach h2c plaintext HTTP/2 to an existing HttpServer. */
+void enableHttp2(http::HttpServer & server);
 
 } // namespace nitrocoro::http2

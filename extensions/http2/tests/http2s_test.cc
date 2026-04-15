@@ -14,7 +14,6 @@
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 
-#include <cstring>
 #include <optional>
 #include <unordered_map>
 
@@ -70,8 +69,9 @@ static std::pair<std::string, std::string> makeTestCert(const std::string & cn)
     return { certPem, keyPem };
 }
 
-static std::pair<TlsContextPtr, TlsContextPtr> makeContexts(std::vector<std::string> serverAlpn,
-                                                            std::vector<std::string> clientAlpn)
+// serverPolicy has no alpn set — enableHttp2 sets it automatically.
+// clientCtx uses the given alpn to simulate different client capabilities.
+static std::pair<TlsPolicy, TlsContextPtr> makeContexts(std::vector<std::string> clientAlpn)
 {
     auto [certPem, keyPem] = makeTestCert("localhost");
 
@@ -79,8 +79,6 @@ static std::pair<TlsContextPtr, TlsContextPtr> makeContexts(std::vector<std::str
     sp.certPem = certPem;
     sp.keyPem = keyPem;
     sp.validate = false;
-    sp.alpn = std::move(serverAlpn);
-    auto serverCtx = TlsContext::createServer(sp);
 
     TlsPolicy cp;
     cp.hostname = "localhost";
@@ -88,7 +86,7 @@ static std::pair<TlsContextPtr, TlsContextPtr> makeContexts(std::vector<std::str
     cp.alpn = std::move(clientAlpn);
     auto clientCtx = TlsContext::createClient(cp);
 
-    return { serverCtx, clientCtx };
+    return { sp, clientCtx };
 }
 
 // ── Minimal h2 client helpers ─────────────────────────────────────────────────
@@ -304,10 +302,10 @@ static std::vector<uint8_t> makeGetFrame(uint32_t streamId, std::string_view pat
 
 NITRO_TEST(h2s_get)
 {
-    auto [serverCtx, clientCtx] = makeContexts({ "h2" }, { "h2" });
+    auto [serverPolicy, clientCtx] = makeContexts({ "h2" });
 
     HttpServer server(0);
-    enableHttp2(server, serverCtx);
+    enableHttp2(server, serverPolicy);
     server.route("/hello", { "GET" }, [](auto req, auto resp) {
         resp->setBody("hello h2s");
     });
@@ -329,10 +327,10 @@ NITRO_TEST(h2s_get)
 
 NITRO_TEST(h2s_path_params)
 {
-    auto [serverCtx, clientCtx] = makeContexts({ "h2" }, { "h2" });
+    auto [serverPolicy, clientCtx] = makeContexts({ "h2" });
 
     HttpServer server(0);
-    enableHttp2(server, serverCtx);
+    enableHttp2(server, serverPolicy);
     server.route("/users/:id", { "GET" }, [](auto req, auto resp) {
         resp->setBody(req->pathParams().at("id"));
     });
@@ -353,10 +351,10 @@ NITRO_TEST(h2s_path_params)
 
 NITRO_TEST(h2s_multiple_streams)
 {
-    auto [serverCtx, clientCtx] = makeContexts({ "h2" }, { "h2" });
+    auto [serverPolicy, clientCtx] = makeContexts({ "h2" });
 
     HttpServer server(0);
-    enableHttp2(server, serverCtx);
+    enableHttp2(server, serverPolicy);
     server.route("/a", { "GET" }, [](auto req, auto resp) { resp->setBody("aaa"); });
     server.route("/b", { "GET" }, [](auto req, auto resp) { resp->setBody("bbb"); });
 
@@ -384,13 +382,11 @@ NITRO_TEST(h2s_multiple_streams)
 // Client negotiates "http/1.1" → falls back, HTTP/1.1 request succeeds.
 NITRO_TEST(h2s_fallback_http1)
 {
-    auto [serverCtx, clientCtx] = makeContexts({ "h2", "http/1.1" }, { "http/1.1" });
+    auto [serverPolicy, clientCtx] = makeContexts({ "http/1.1" });
 
     HttpServer server(0);
-    enableHttp2(server, serverCtx);
-    server.route("/", { "GET" }, [](auto req, auto resp) {
-        resp->setBody("http1");
-    });
+    enableHttp2(server, serverPolicy);
+    server.route("/", { "GET" }, [](auto req, auto resp) {});
 
     Scheduler::current()->spawn([&]() -> Task<> { co_await server.start(); });
     co_await server.started();
@@ -408,17 +404,17 @@ NITRO_TEST(h2s_fallback_http1)
     while ((n = co_await tls->read(buf, sizeof(buf))) > 0)
         resp.append(buf, n);
 
-    NITRO_CHECK(resp.find("http1") != std::string::npos);
+    NITRO_CHECK(resp.find("HTTP/1.1 200") != std::string::npos);
     co_await server.stop();
 }
 
 // Client negotiates "h2" while server supports both → h2 selected, not fallback.
 NITRO_TEST(h2s_fallback_h2_preferred)
 {
-    auto [serverCtx, clientCtx] = makeContexts({ "h2", "http/1.1" }, { "h2" });
+    auto [serverPolicy, clientCtx] = makeContexts({ "h2" });
 
     HttpServer server(0);
-    enableHttp2(server, serverCtx);
+    enableHttp2(server, serverPolicy);
     server.route("/", { "GET" }, [](auto req, auto resp) {
         resp->setBody("h2ok");
     });
