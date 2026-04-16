@@ -38,6 +38,8 @@ Http2Client::Http2Client(net::Url url, Http2ClientConfig config)
         config_.tls_policy.alpn = { "h2" };
         if (config_.allow_http1_fallback)
             config_.tls_policy.alpn.push_back("http/1.1");
+        if (config_.tls_policy.hostname.empty())
+            config_.tls_policy.hostname = baseUrl_.host();
     }
 }
 
