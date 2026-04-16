@@ -49,11 +49,12 @@ public:
 
     // Encode response headers. Uses literal without indexing for simplicity.
     std::vector<uint8_t> encodeResponse(const http::HttpResponse & resp);
-
-private:
+    
+    // Public encoding utilities for client use
     void encodeInt(std::vector<uint8_t> & out, uint64_t value, uint8_t prefixBits, uint8_t firstByte);
     void encodeStr(std::vector<uint8_t> & out, std::string_view s);
 
+private:
     HpackTable table_;
 };
 

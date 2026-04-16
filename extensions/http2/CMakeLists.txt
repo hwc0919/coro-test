@@ -3,8 +3,11 @@ add_library(nitrocoro-http2 STATIC
     src/hpack/HpackTable.cc
     src/hpack/Hpack.cc
     src/Http2ResponseSink.cc
+    src/Http2RequestSink.cc
     src/Http2Session.cc
     src/Http2Server.cc
+    src/Http2Client.cc
+    src/Http2ClientSession.cc
 )
 
 target_include_directories(nitrocoro-http2
@@ -40,4 +43,8 @@ if (BUILD_TESTING)
     add_executable(http2s_test tests/http2s_test.cc)
     target_link_libraries(http2s_test PRIVATE nitrocoro-http2)
     add_test(NAME http2s_test COMMAND http2s_test)
+    
+    add_executable(http2_client_test tests/http2_client_test.cc)
+    target_link_libraries(http2_client_test PRIVATE nitrocoro-http2)
+    add_test(NAME http2_client_test COMMAND http2_client_test)
 endif ()

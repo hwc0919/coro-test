@@ -78,6 +78,5 @@ protected:
 Task<HttpCompleteResponse> get(std::string url);
 Task<HttpCompleteResponse> post(std::string url, std::string body);
 Task<IncomingResponse> request(std::string url, ClientRequest req);
-Task<IncomingResponse> requestStream(std::string url, ClientRequest req);
 
 } // namespace nitrocoro::http
