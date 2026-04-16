@@ -6,6 +6,7 @@
 #include "Http2ClientSession.h"
 
 #include <nitrocoro/core/Scheduler.h>
+#include <nitrocoro/http/HttpClient.h>
 #include <nitrocoro/net/Dns.h>
 #include <nitrocoro/net/TcpConnection.h>
 #include <nitrocoro/tls/TlsContext.h>
@@ -67,10 +68,17 @@ Task<http::IncomingResponse> Http2Client::request(http::ClientRequest req)
     if (config_.add_host_header)
         req.setHeader(http::HttpHeader::NameCode::Host, baseUrl_.host());
 
+    if (negotiatedProtocol_ == ProtocolVersion::Http11)
+    {
+        co_return co_await http1Fallback_->request(std::move(req));
+    }
+
     auto session = co_await getSession();
 
     if (negotiatedProtocol_ == ProtocolVersion::Http11)
-        throw std::runtime_error("HTTP/1.1 fallback not yet implemented");
+    {
+        co_return co_await http1Fallback_->request(std::move(req));
+    }
 
     co_return co_await session->request(std::move(req));
 }
@@ -83,8 +91,27 @@ Task<std::shared_ptr<Http2ClientSession>> Http2Client::getSession()
     auto stream = co_await connect();
     negotiatedProtocol_ = co_await negotiateProtocol();
 
-    if (negotiatedProtocol_ != ProtocolVersion::Http2)
-        throw std::runtime_error("HTTP/1.1 fallback not yet implemented");
+    if (negotiatedProtocol_ == ProtocolVersion::Http11)
+    {
+        if (!http1Fallback_)
+        {
+            http::HttpClientConfig http1Config;
+            http1Config.add_host_header = config_.add_host_header;
+            http1Fallback_ = std::make_unique<http::HttpClient>(baseUrl_, http1Config);
+            if (isHttps_)
+            {
+                tls::TlsPolicy http1Policy = config_.tls_policy;
+                http1Policy.alpn = { "http/1.1" };
+                auto ctx = tls::TlsContext::createClient(http1Policy);
+                http1Fallback_->setStreamUpgrader(
+                    [ctx = std::move(ctx)](net::TcpConnectionPtr conn) -> Task<io::StreamPtr> {
+                        auto tls = co_await tls::TlsStream::connect(conn, std::move(ctx));
+                        co_return std::make_shared<io::Stream>(std::move(tls));
+                    });
+            }
+        }
+        co_return nullptr;
+    }
 
     http2Session_ = std::make_shared<Http2ClientSession>(std::move(stream), Scheduler::current(), baseUrl_.scheme());
 

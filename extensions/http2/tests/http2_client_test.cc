@@ -9,7 +9,9 @@
 #include <nitrocoro/http2/Http2Client.h>
 #include <nitrocoro/http2/Http2Server.h>
 #include <nitrocoro/testing/Test.h>
+#include <nitrocoro/tls/TlsContext.h>
 #include <nitrocoro/tls/TlsPolicy.h>
+#include <nitrocoro/tls/TlsStream.h>
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -316,6 +318,111 @@ NITRO_TEST(https_path_params)
 
     NITRO_CHECK_EQ(resp.statusCode(), 200);
     NITRO_CHECK_EQ(resp.body(), "99");
+
+    co_await server.stop();
+}
+
+// ── HTTPS fallback (HTTP/1.1) tests ──────────────────────────────────────────
+
+// Builds a TLS-only HttpServer (no h2) with the given cert/key.
+static void startHttp1TlsServer(http::HttpServer & server, const std::string & certPem, const std::string & keyPem)
+{
+    tls::TlsPolicy policy;
+    policy.certPem = certPem;
+    policy.keyPem = keyPem;
+    policy.alpn = { "http/1.1" };
+    policy.validate = false;
+    auto ctx = tls::TlsContext::createServer(policy);
+    server.setStreamUpgrader([ctx](net::TcpConnectionPtr conn) -> Task<io::StreamPtr> {
+        auto tls = co_await tls::TlsStream::accept(conn, ctx);
+        co_return std::make_shared<io::Stream>(std::move(tls));
+    });
+    Scheduler::current()->spawn([&server]() -> Task<> { co_await server.start(); });
+}
+
+static Http2Client makeFallbackClient(uint16_t port)
+{
+    Http2ClientConfig config;
+    config.tls_policy.hostname = "localhost";
+    config.tls_policy.validate = false;
+    config.allow_http1_fallback = true;
+    return Http2Client("https://localhost:" + std::to_string(port), config);
+}
+
+NITRO_TEST(https_fallback_get)
+{
+    auto [certPem, keyPem] = makeTestCert();
+    http::HttpServer server(0);
+    server.route("/hello", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("fallback");
+    });
+    startHttp1TlsServer(server, certPem, keyPem);
+    co_await server.started();
+
+    auto client = makeFallbackClient(server.listeningPort());
+    auto resp = co_await client.get("/hello");
+
+    NITRO_CHECK_EQ(resp.statusCode(), 200);
+    NITRO_CHECK_EQ(resp.body(), "fallback");
+
+    co_await server.stop();
+}
+
+NITRO_TEST(https_fallback_post)
+{
+    auto [certPem, keyPem] = makeTestCert();
+    http::HttpServer server(0);
+    server.route("/echo", { "POST" }, [](auto req, auto resp) -> Task<> {
+        auto complete = co_await req->toCompleteRequest();
+        resp->setBody(complete.body());
+    });
+    startHttp1TlsServer(server, certPem, keyPem);
+    co_await server.started();
+
+    auto client = makeFallbackClient(server.listeningPort());
+    auto resp = co_await client.post("/echo", "hello fallback");
+
+    NITRO_CHECK_EQ(resp.statusCode(), 200);
+    NITRO_CHECK_EQ(resp.body(), "hello fallback");
+
+    co_await server.stop();
+}
+
+NITRO_TEST(https_fallback_multiple_requests)
+{
+    auto [certPem, keyPem] = makeTestCert();
+    http::HttpServer server(0);
+    server.route("/", { "GET" }, [](auto req, auto resp) {
+        resp->setBody("ok");
+    });
+    startHttp1TlsServer(server, certPem, keyPem);
+    co_await server.started();
+
+    auto client = makeFallbackClient(server.listeningPort());
+    auto r1 = co_await client.get("/");
+    auto r2 = co_await client.get("/");
+
+    NITRO_CHECK_EQ(r1.statusCode(), 200);
+    NITRO_CHECK_EQ(r2.statusCode(), 200);
+
+    co_await server.stop();
+}
+
+NITRO_TEST(https_fallback_disabled_throws)
+{
+    auto [certPem, keyPem] = makeTestCert();
+    http::HttpServer server(0);
+    server.route("/", { "GET" }, [](auto req, auto resp) { resp->setBody("ok"); });
+    startHttp1TlsServer(server, certPem, keyPem);
+    co_await server.started();
+
+    Http2ClientConfig config;
+    config.tls_policy.hostname = "localhost";
+    config.tls_policy.validate = false;
+    config.allow_http1_fallback = false;
+    Http2Client client("https://localhost:" + std::to_string(server.listeningPort()), config);
+
+    NITRO_CHECK_THROWS(co_await client.get("/"));
 
     co_await server.stop();
 }

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <nitrocoro/http/HttpClient.h>
 #include <nitrocoro/http/HttpStream.h>
 
 #include <nitrocoro/core/Task.h>
@@ -20,7 +21,6 @@ namespace nitrocoro::http2
 {
 
 class Http2ClientSession;
-class Http1ClientSession; // Forward declaration for fallback
 
 enum class ProtocolVersion
 {
@@ -64,8 +64,8 @@ private:
     ProtocolVersion negotiatedProtocol_ = ProtocolVersion::Http2;
 
     std::shared_ptr<Http2ClientSession> http2Session_;
+    std::unique_ptr<http::HttpClient> http1Fallback_;
     std::string negotiatedAlpn_;
-    // TODO: Add Http1ClientSession for fallback
 };
 
 Task<http::HttpCompleteResponse> get(std::string url);
