@@ -180,6 +180,7 @@ Task<> Http2Session::finaliseHeaders()
     }
     headerBlockBuf_.clear();
 
+    NITRO_TRACE("creating Http2Stream sid=%u", sid);
     auto stream = std::make_shared<Http2Stream>(sid, scheduler_);
     stream->decodedHeaders = std::move(dh);
     stream->headersComplete = true;
